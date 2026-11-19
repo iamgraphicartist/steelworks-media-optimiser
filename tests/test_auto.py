@@ -272,3 +272,51 @@ class TestStopIsImmediate(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await e.plugin_call(method, {})
         self.assertEqual(sent, [], "nothing that edits the deck was sent")
+
+
+class TestChoosingAnotherDeck(unittest.IsolatedAsyncioTestCase):
+    """Pasting another deck's link replaces the previous deck and starts over."""
+    A = "https://www.figma.com/slides/AAAAAAAAAAAAAAAAAAAAAA/Client-One-Deck"
+    B = "https://www.figma.com/slides/BBBBBBBBBBBBBBBBBBBBBB"   # no name in the link
+
+    async def make(self):
+        e = FakeEngine(config.Config(os.path.join(TMP, "cfg3.json")), SecureStore(os.path.join(TMP, "s3.bin")), 47895)
+        e.attach(asyncio.get_running_loop())
+        e.state["connections"]["plugin"] = {"connected": True, "file": {"name": "Client One Deck", "_at": 1}}
+        return e
+
+    async def test_new_deck_starts_fresh(self):
+        e = await self.make()
+        await e.a_deck_set({"url": self.A})
+        self.assertTrue(e.state["deck"]["pluginMatches"])
+        e.state["scan"] = {"status": "done"}
+        e.state["auto"] = {"status": "done"}
+        e.state["details"] = {"status": "ready", "cover": [], "groups": []}
+        e.undo = [{"x": 1}]
+        e.inv = {"slides": []}
+        d = await e.a_deck_set({"url": self.B})
+        self.assertEqual(d["key"], "BBBBBBBBBBBBBBBBBBBBBB")
+        for k in ("scan", "auto", "details"):
+            self.assertEqual(e.state[k]["status"], "idle", k)
+        self.assertEqual((e.undo, e.inv), ([], None))
+
+    async def test_link_without_name_is_not_taken_for_the_open_deck(self):
+        e = await self.make()
+        d = await e.a_deck_set({"url": self.B})
+        self.assertIsNone(d["name"], "it must not borrow the name of the deck open in Figma")
+        self.assertIsNone(d["pluginMatches"], "unknown, so Optimise opens it first")
+
+    async def test_same_deck_again_keeps_progress(self):
+        e = await self.make()
+        await e.a_deck_set({"url": self.A})
+        e.state["scan"] = {"status": "done"}
+        await e.a_deck_set({"url": self.A + "?node-id=1-2"})
+        self.assertEqual(e.state["scan"]["status"], "done")
+
+    async def test_cannot_switch_while_optimising(self):
+        e = await self.make()
+        await e.a_deck_set({"url": self.A})
+        e._busy = "optimising the deck"
+        with self.assertRaises(RuntimeError):
+            await e.a_deck_set({"url": self.B})
+        self.assertEqual(e.state["deck"]["key"], "AAAAAAAAAAAAAAAAAAAAAA")

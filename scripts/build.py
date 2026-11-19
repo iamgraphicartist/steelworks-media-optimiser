@@ -19,7 +19,7 @@ import zipfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 NAME = "Steelworks Media Optimiser"
 SLUG = "Steelworks-Media-Optimiser"
-VERSION = "1.0.10"
+VERSION = "1.0.11"
 DIST = os.path.join(ROOT, "dist")
 import tempfile
 # Short path: Windows resource stamping (icon/version) fails on very long paths.

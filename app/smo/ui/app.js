@@ -191,7 +191,7 @@
         '<h1>Optimise ' + (ready ? '“' + deckName + '”' : 'your deck') + '</h1>' +
         '<p class="lede" style="margin:0 auto 28px">One click. The app reads every slide, makes every image, GIF and video lighter with no visible difference, tidies spacing and alignment, and saves a report. It asks you once, before anything is deleted.</p>' +
         (ready ? '<button class="btn large hero-btn" data-a="auto.run" data-p="' + esc(JSON.stringify({ url: dk.url || '' })) + '">Optimise deck</button>' +
-                 '<p class="small muted" style="margin-top:12px">' + (dk.key && !(pl.connected && dk.pluginMatches !== false) ? 'The app will open it in Figma and start the plugin. ' : '') + '<a data-go="deck">Choose a different deck</a></p>'
+                 '<p class="small muted" style="margin-top:12px">' + (dk.key && !(pl.connected && dk.pluginMatches === true) ? 'The app will open it in Figma and start the plugin. ' : '') + '<a data-go="deck">Choose a different deck</a></p>'
                : '<button class="btn large hero-btn" disabled>Optimise deck</button><p class="small muted" style="margin-top:12px"><a data-go="deck">Choose a deck first</a></p>') +
         '<p class="small muted" style="margin-top:18px">Takes a few minutes for a big deck. Figma keeps a version from before, so everything can be undone.</p>' +
         '</div><div class="what-grid">' +
@@ -265,7 +265,7 @@
     if (D.status === 'idle' || D.status === 'error') {
       var can = dk.key || pl.connected;
       return '<div class="card">' + head + '<button class="btn secondary" data-a="details.read" data-p="' + esc(JSON.stringify({ url: dk.url || '' })) + '"' + (can ? '' : ' disabled') + '>Load details</button></div>' +
-        (D.status === 'error' ? '<p class="small" style="color:var(--red);margin:0">' + esc(D.error) + '</p>' : '<p class="small muted" style="margin:0">' + (dk.key && !(pl.connected && dk.pluginMatches !== false) ? 'The app opens the deck in Figma to read it.' : '') + '</p>') + '</div>';
+        (D.status === 'error' ? '<p class="small" style="color:var(--red);margin:0">' + esc(D.error) + '</p>' : '<p class="small muted" style="margin:0">' + (dk.key && !(pl.connected && dk.pluginMatches === true) ? 'The app opens the deck in Figma to read it.' : '') + '</p>') + '</div>';
     }
     if (D.status === 'loading') return '<div class="card">' + head + '</div><div class="progress indeterminate"><i></i></div><p class="small muted">Opening the deck and reading its cover, header and footer…</p></div>';
     var rows = '';
@@ -293,7 +293,7 @@
           '<div class="icon-badge figma" style="width:90px;height:56px">' + ICON.figma + '</div>') +
         '<div class="grow"><h2>' + esc(d.name || 'Figma deck') + '</h2><div class="muted small mono">' + esc(d.key) + '</div>' +
         (d.warning ? '<div class="small" style="color:var(--orange);margin-top:6px">' + esc(d.warning) + '</div>' : '') +
-        '<div style="margin-top:8px">' + (pl.connected && d.pluginMatches !== false ? '<span class="chip ok">' + ICON.check + ' Open in Figma</span>'
+        '<div style="margin-top:8px">' + (pl.connected && d.pluginMatches === true ? '<span class="chip ok">' + ICON.check + ' Open in Figma</span>'
           : '<span class="chip info">The app opens it in Figma for you</span>') + '</div></div></div></div>';
     } else if (pl.connected && pl.file) {
       card = '<div class="callout">' + ICON.info + '<div><b>' + esc(pl.file.name) + '</b> is open in Figma. Continue to use it, or paste another deck’s link above.</div></div>';
@@ -525,7 +525,13 @@
       }
       var go2 = $('deckGo');
       if (go2) {
-        go2.onclick = function () { act('deck.set', { url: $('deckUrl').value }).then(function () { render(true); }); };
+        go2.onclick = function () {
+          var before = (S.deck || {}).key;
+          act('deck.set', { url: $('deckUrl').value }).then(function (d) {
+            if (d && d.key && d.key !== before) { draft = { cover: {}, groups: {} }; if (before) toast('New deck chosen: starting fresh'); }
+            render(true);
+          });
+        };
         $('deckUrl').onkeydown = function (e) { if (e.key === 'Enter') go2.click(); };
       }
     }

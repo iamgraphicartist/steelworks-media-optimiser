@@ -33,7 +33,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.10"
+VERSION = "1.0.11"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 
@@ -118,13 +118,28 @@ class Engine:
         self.state: dict = {
             "version": VERSION, "gap": 12, "demo": bool(demo), "pairCode": self.pair_code, "pairRequest": False,
             "connections": {}, "deck": {}, "activity": {"title": "Ready", "detail": "", "progress": None},
+            **self._fresh_deck_state(),
+        }
+        self.state["gap"] = self.gap()
+        self._refresh_connections()
+
+    @staticmethod
+    def _fresh_deck_state() -> dict:
+        """Everything the app knows about one deck. Choosing another deck starts these over."""
+        return {
             "scan": {"status": "idle"}, "images": {"status": "idle", "items": []},
             "cleanup": {"status": "idle", "items": []}, "videos": {"status": "idle", "items": []},
             "spacing": {"status": "idle", "grids": []}, "align": {"status": "idle", "items": []}, "report": {},
             "auto": {"status": "idle"}, "details": {"status": "idle"}, "undo": {"count": 0, "reversible": 0},
         }
-        self.state["gap"] = self.gap()
-        self._refresh_connections()
+
+    def _start_new_deck(self) -> None:
+        """Forget the previous deck: its scan, plans, report, details and undo list."""
+        self.inv = None
+        self.undo = []
+        self.version_saved = False
+        self._dirty = False
+        self.state.update(self._fresh_deck_state())
 
     # ------------------------------------------------------------- plumbing
     def quality(self) -> str:
@@ -504,7 +519,14 @@ class Engine:
         if not key:
             raise ValueError("That doesn't look like a Figma link. Copy it from Share → Copy link.")
         m = re.search(r"/[A-Za-z0-9]{10,}/([^/?#]+)", p["url"])
+        prev = self.state.get("deck") or {}
+        if key != prev.get("key"):
+            if self._busy:
+                raise RuntimeError(f"Please wait — still {self._busy}. Stop it first, then choose the new deck.")
+            self._start_new_deck()
         deck = {"url": p["url"].strip(), "key": key, "name": (m.group(1).replace("-", " ") if m else None)}
+        if key == prev.get("key") and not deck["name"]:
+            deck["name"], deck["pluginMatches"] = prev.get("name"), prev.get("pluginMatches")
         tok = self.figma_auth.access_token()
         if tok:
             try:
@@ -523,10 +545,14 @@ class Engine:
         if deck.get("key") and plug.get("connected"):
             if f.get("fileKey"):
                 deck["pluginMatches"] = f["fileKey"] == deck["key"]
-            else:  # fileKey is only exposed to private plugins; fall back to the name
-                deck["pluginMatches"] = (not deck.get("name")) or deck.get("name") == f.get("name")
-            if not deck.get("name"):
-                deck["name"] = f.get("name")
+                if deck["pluginMatches"] and not deck.get("name"):
+                    deck["name"] = f.get("name")
+            elif deck.get("name"):  # fileKey is only exposed to private plugins; fall back to the name
+                deck["pluginMatches"] = self._norm_name(deck["name"]) == self._norm_name(f.get("name"))
+            else:  # a link with no name: we can't tell yet, so the app opens it to be sure
+                deck["pluginMatches"] = None
+        elif deck.get("key"):
+            deck["pluginMatches"] = None
         self.changed()
 
     # ------------------------------------------------------------------ scan
@@ -1175,7 +1201,11 @@ class Engine:
         while time.time() < deadline and not self._auto_stop:
             plug = self.state["connections"]["plugin"]
             if plug.get("connected") and self._deck_matches(plug.get("file") or {}, key, slug, since):
-                self._auto_set("open", "done", f"“{(plug.get('file') or {}).get('name', 'Deck')}” is open")
+                name = (plug.get("file") or {}).get("name")
+                if name:
+                    self.state["deck"]["name"] = name
+                    self.state["deck"]["pluginMatches"] = True
+                self._auto_set("open", "done", f"“{name or 'Deck'}” is open")
                 return True
             if attempts < 3 and time.time() - since > self.OPEN_WAIT + attempts * self.RETRY_WAIT:
                 attempts += 1

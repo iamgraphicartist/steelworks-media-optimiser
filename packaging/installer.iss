@@ -1,6 +1,6 @@
 ; Inno Setup script — per-user install, no admin rights needed.
 #define Name "Steelworks Media Optimiser"
-#define Version "1.0.10"
+#define Version "1.0.11"
 #ifndef Src
   #define Src "..\build\pyinstaller\dist\Steelworks Media Optimiser"
 #endif

@@ -46,10 +46,27 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          choco install ffmpeg innosetup -y --no-progress
+          # Chocolatey has short outages (503s), so retry, and fetch ffmpeg directly if it stays down.
+          function Install-Choco($pkg) {
+            for ($i = 1; $i -le 4; $i++) {
+              choco install $pkg -y --no-progress
+              if ($LASTEXITCODE -eq 0) { return $true }
+              Write-Host "choco $pkg failed (attempt $i), retrying in 30s"; Start-Sleep 30
+            }
+            return $false
+          }
+          if (-not (Install-Choco innosetup)) { throw "Inno Setup could not be installed" }
           New-Item -ItemType Directory -Force vendor/ffmpeg | Out-Null
-          $bin = Get-ChildItem C:\ProgramData\chocolatey\lib\ffmpeg -Recurse -Filter ffmpeg.exe | Where-Object { $_.DirectoryName -like '*\bin' } | Select-Object -First 1
-          Copy-Item (Join-Path $bin.DirectoryName 'ffmpeg.exe'), (Join-Path $bin.DirectoryName 'ffprobe.exe') vendor/ffmpeg/
+          if (Install-Choco ffmpeg) {
+            $bin = Get-ChildItem C:\ProgramData\chocolatey\lib\ffmpeg -Recurse -Filter ffmpeg.exe | Where-Object { $_.DirectoryName -like '*\bin' } | Select-Object -First 1
+            $dir = $bin.DirectoryName
+          } else {
+            Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile "$env:RUNNER_TEMP\ffmpeg.zip"
+            Expand-Archive "$env:RUNNER_TEMP\ffmpeg.zip" "$env:RUNNER_TEMP\ffmpeg"
+            $dir = (Get-ChildItem "$env:RUNNER_TEMP\ffmpeg" -Recurse -Filter ffmpeg.exe | Select-Object -First 1).DirectoryName
+          }
+          Copy-Item (Join-Path $dir 'ffmpeg.exe'), (Join-Path $dir 'ffprobe.exe') vendor/ffmpeg/
+          $global:LASTEXITCODE = 0
 
       # ---------- macOS
       - name: ffmpeg (macOS) - bundled, so nobody installs anything
