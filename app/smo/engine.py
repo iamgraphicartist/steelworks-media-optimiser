@@ -33,7 +33,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 
@@ -119,7 +119,8 @@ class Engine:
             "connections": {}, "deck": {}, "activity": {"title": "Ready", "detail": "", "progress": None},
             "scan": {"status": "idle"}, "images": {"status": "idle", "items": []},
             "cleanup": {"status": "idle", "items": []}, "videos": {"status": "idle", "items": []},
-            "spacing": {"status": "idle", "grids": []}, "align": {"status": "idle", "items": []}, "report": {}, "undo": {"count": 0, "reversible": 0},
+            "spacing": {"status": "idle", "grids": []}, "align": {"status": "idle", "items": []}, "report": {},
+            "auto": {"status": "idle"}, "undo": {"count": 0, "reversible": 0},
         }
         self.state["gap"] = self.gap()
         self._refresh_connections()
@@ -961,6 +962,9 @@ class Engine:
             self._log_undo([{"type": "video", "ok": True, "nodeId": v["nodeId"], "newNodeId": r.get("nodeId"),
                              "name": v["name"], "file": v["out"], "mode": r.get("mode")}])
         self._update_totals()
+        for ph in (self.state.get("auto") or {}).get("phases") or []:
+            if ph["id"] == "videos" and ph["status"] == "done":
+                ph["detail"] = self._videos_summary()
         self.activity("Videos replaced", f"{placed} of {len(ready)} done", 1)
         return {"placed": placed}
 
@@ -1070,6 +1074,142 @@ class Engine:
         self.activity("Changes undone", f"{n} change{'s' if n != 1 else ''} put back" +
                       (f" · {gone} were on layers removed since (use version history for those)" if gone else ""))
         return {"reverted": n}
+
+    # ------------------------------------------------------- one-click optimise
+    AUTO_PHASES = [("scan", "Read the deck"), ("cleanup", "Remove hidden & covered media"),
+                   ("images", "Optimise images"), ("videos", "Compress videos & GIFs"),
+                   ("layout", "Tidy spacing & alignment"), ("report", "Save the report")]
+
+    def _videos_summary(self) -> str:
+        items = self.state["videos"]["items"]
+        ready = sum(1 for v in items if v["status"] == "ready")
+        done = sum(1 for v in items if v["status"] == "done")
+        missing = sum(1 for v in items if v["status"] == "not_found")
+        bits = [f"{done} replaced"] if done else []
+        if ready:
+            bits.append(f"{ready} ready to drag in")
+        if missing:
+            bits.append(f"{missing} original{'s' if missing != 1 else ''} not found")
+        return " · ".join(bits) or "Nothing to change"
+
+    def _auto_set(self, pid, status, detail=""):
+        for ph in self.state["auto"]["phases"]:
+            if ph["id"] == pid:
+                ph.update(status=status, detail=detail)
+        self.state["auto"]["phase"] = pid
+        self.changed()
+
+    async def a_auto_run(self, p):
+        """Everything, in the right order, with one pause before anything is deleted."""
+        return await self._exclusive("optimising the deck", self._auto())
+
+    async def a_auto_continue(self, p):
+        fut = getattr(self, "_auto_gate", None)
+        if fut and not fut.done():
+            fut.set_result(bool(p.get("remove", True)))
+
+    async def a_auto_stop(self, p):
+        self._auto_stop = True
+        fut = getattr(self, "_auto_gate", None)
+        if fut and not fut.done():
+            fut.set_result(False)
+        self.state["auto"]["stopping"] = True
+        self.changed()
+
+    async def a_auto_reset(self, p):
+        if not self._busy:
+            self.state["auto"] = {"status": "idle"}
+            self.changed()
+
+    async def _auto(self):
+        self._auto_stop = False
+        A = self.state["auto"] = {"status": "running", "phase": "scan", "started": time.time(),
+                                  "phases": [{"id": i, "label": l, "status": "pending", "detail": ""} for i, l in self.AUTO_PHASES]}
+        self.changed()
+
+        async def step(pid, coro_fn):
+            if self._auto_stop:
+                self._auto_set(pid, "skipped", "Stopped")
+                return None
+            self._auto_set(pid, "running")
+            try:
+                r = await coro_fn()
+                return r
+            except Exception as e:
+                self._auto_set(pid, "error", str(e)[:200])
+                return None
+
+        # 1. Read
+        r = await step("scan", self._scan)
+        if r is None:
+            A["status"] = "error"
+            self.changed()
+            return A
+        s_ = self.state["scan"]["summary"]
+        self._auto_set("scan", "done", f"{s_['slides']} slides · {s_['images']} images · {s_['videos'] + s_['gifs']} videos & GIFs")
+
+        # 2. Clean-up: the one question
+        items = [i for i in self.state["cleanup"]["items"] if i["status"] == "pending"]
+        if not items:
+            self._auto_set("cleanup", "done", "Nothing hidden or covered")
+        else:
+            self._auto_set("cleanup", "waiting", f"{len(items)} layer{'s' if len(items) != 1 else ''} nobody can see")
+            A["status"] = "waiting"
+            self._auto_gate = self.loop.create_future()
+            self.activity("Your OK, please", "Check the layers that will be removed, then continue.")
+            remove = await self._auto_gate
+            A["status"] = "running"
+            if self._auto_stop:
+                self._auto_set("cleanup", "skipped", "Stopped")
+            elif remove and any(i["selected"] for i in items):
+                self._auto_set("cleanup", "running")
+                try:
+                    res = await self._cleanup()
+                    self._auto_set("cleanup", "done", f"{res['removed']} removed")
+                except Exception as e:
+                    self._auto_set("cleanup", "error", str(e)[:200])
+            else:
+                self._auto_set("cleanup", "skipped", "Kept everything")
+
+        # 3. Images
+        if await step("images", self._images) is not None:
+            t = self.state["images"].get("totals") or {}
+            self._auto_set("images", "done", f"{t.get('done', 0)} swapped · {reportlib.mb(t.get('before'))} → {reportlib.mb(t.get('after'))}")
+
+        # 4. Videos & GIFs: compress; place automatically only where Figma allows it
+        if not (self.ffmpeg and self.ffprobe):
+            self._auto_set("videos", "skipped", "Video tools missing")
+        elif not self.state["videos"]["items"]:
+            self._auto_set("videos", "done", "No videos or GIFs")
+        else:
+            prep = await step("videos", self._videos_prepare)
+            if prep is not None:
+                can_auto = (self.state["connections"]["plugin"].get("file") or {}).get("canCreateVideo")
+                if can_auto and not self._auto_stop:
+                    await self._videos_place()
+                self._auto_set("videos", "done", self._videos_summary())
+
+        # 5. Layout: spacing + alignment
+        async def layout():
+            g = await self._spacing()
+            await self._align_scan({})
+            a = await self._align_run()
+            return {"grids": g.get("grids", 0), "moved": a.get("moved", 0)}
+        lay = await step("layout", layout)
+        if lay is not None:
+            self._auto_set("layout", "done", f"{lay['grids']} grid{'s' if lay['grids'] != 1 else ''} evened · {lay['moved']} layer{'s' if lay['moved'] != 1 else ''} aligned")
+
+        # 6. Report (saved quietly; shown on the summary)
+        rep = await step("report", lambda: self.a_report_export({"open": False}))
+        if rep is not None:
+            self._auto_set("report", "done", "Saved")
+        self._update_totals()
+        r = self.state["report"]
+        A.update(status="done", finished=time.time(), before=r.get("before"), after=r.get("after"),
+                 needsHand=len(self._replace_rows()))
+        saved = (r.get("before") or 0) - (r.get("after") or 0)
+        self.activity("Deck optimised", f"{reportlib.mb(r.get('before'))} → {reportlib.mb(r.get('after'))} · {reportlib.mb(saved)} saved", 1)
+        return A
 
     async def a_focus(self, p):
         return await self.plugin_call("focus", {"nodeId": p["nodeId"]}, timeout=20)

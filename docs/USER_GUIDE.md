@@ -32,13 +32,34 @@ That's it. The plugin stays connected on this computer from now on. Keep its pan
 >
 > ![Settings](images/12-settings.png)
 
-## 2 · Choose deck
+## 2 · Optimise: one click does it all
+
+![Optimise](images/00-optimise-start.png)
+
+Open the deck in Figma with the plugin running, then click **Optimise deck**. The app works through every step by itself: it reads the deck, makes every image, GIF and video lighter with no visible difference, evens out thumbnail gaps, lines up headers, footers and text, and saves a report.
+
+**It asks you exactly once, before anything is deleted.** Untick anything you want to keep, then click **Remove … and continue** (or **Keep them all**):
+
+![One question](images/00-optimise-ask.png)
+
+When it's finished, you see what changed:
+
+![Done](images/00-optimise-done.png)
+
+* **Videos ready to drag in:** Figma doesn't let apps place videos by themselves. Click **Replace in Figma**, and for each video drag the file that appears onto the canvas. The plugin puts it exactly where the old one was.
+* **Files to replace by hand:** click **Save files to replace…** to get anything that's left, already compressed and named by slide, in a folder you choose.
+
+That's the whole job for most decks. The steps below are the same work, one page at a time, for when you want more control.
+
+## Step by step (optional)
+
+### Choose deck
 
 ![Choose deck](images/02-deck.png)
 
 Paste the deck's link (**Share › Copy link** in Figma) and press **Open**. A green tag confirms that the plugin is running in that deck.
 
-## 3 · Review
+### Review
 
 ![Review](images/03-review.png)
 
@@ -50,19 +71,19 @@ Press **Read deck**. You'll see the deck's total media weight and every image, G
 
 Click any row to jump to that layer in Figma. Nothing changes in this step.
 
-## 4 · Clean up
+### Clean up
 
 ![Clean up](images/04-cleanup.png)
 
 These layers are invisible but still downloaded: hidden layers, switched-off fills, layers outside the slide, and media completely covered by something opaque on top (checked at 400+ points across each layer). Click **Show** if you're unsure, untick anything you want to keep, then press **Remove**.
 
-## 5 · Images
+### Images
 
 ![Images](images/05-images.png)
 
 Press **Optimise images**. Each image is resized to twice the size it's shown at, so it stays sharp on big, high-resolution screens. Photos become high-quality JPEG, transparent images WebP, and logos or graphics stay lossless. **Every result is compared with the original**: it's only used if it looks the same and is at least 30% smaller. Crops, fills and positions don't change. Photos with a camera rotation tag get an upright copy ready to place by hand (see *Files to replace* below).
 
-## 6 · Videos & GIFs
+### Videos & GIFs
 
 ![Videos](images/06-videos.png)
 
@@ -75,13 +96,13 @@ Press **Optimise images**. Each image is resized to twice the size it's shown at
 
 Videos marked **Not found** go on the replace list (see Report).
 
-## 7 · Spacing
+### Spacing
 
 ![Spacing](images/07-spacing.png)
 
 Thumbnail grids with uneven gaps are shown before and after. Applying sets every gap to 12 px (change it in **Settings › Gap between thumbnails**) and keeps the grid's outer edges where they are. Collages and overlapping layouts are never touched.
 
-## 8 · Alignment
+### Alignment
 
 ![Alignment](images/08-alignment.png)
 
@@ -92,7 +113,7 @@ Press **Check alignment**. The tool works out the deck's margins from its layout
 
 It never moves anything more than 12 px (40 px for headers and footers), so layouts that are different on purpose stay as they are. Untick anything you want to leave, then press **Align**.
 
-## 9 · Report
+### Report
 
 ![Report](images/09-report.png)
 
@@ -102,7 +123,7 @@ It never moves anything more than 12 px (40 px for headers and footers), so layo
   * **Undo log.json:** a record of every change.
 * **Undo changes** puts back image swaps, spacing and alignment. Removed layers and replaced videos come back through Figma's **File › Show version history**: pick *Before Media Optimiser…*.
 
-### Files to replace
+#### Files to replace
 
 Anything the app couldn't put into the deck by itself (a video you skipped, a photo with a rotation tag) is listed under **Files to replace by hand**. Click **Save files to replace…** and choose a folder. You get every file **already compressed with no visible quality loss**, named by slide (*Slide 03 – Hero Spot.mp4*), plus a list and simple instructions. Drag each one onto its slide in place of the old layer.
 
@@ -112,7 +133,7 @@ The app follows your system's light or dark mode:
 
 ---
 
-### Tips
+## Tips
 
 * Big decks: let the Review step finish before you change slides in Figma.
 * If the plugin panel says *Looking for the app…*, open the app. If that doesn't help, choose *Use a new pairing code*.

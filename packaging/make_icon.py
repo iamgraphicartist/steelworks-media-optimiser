@@ -1,111 +1,106 @@
-"""Draw the app icon: a soft squircle glowing from deep blue through pale pink to
-coral red, with "SW" in white. Writes icon.png (1024), icon.ico and icon.icns."""
+"""App icon: an iOS-style squircle in Steelworks red with a black mark.
+
+The mark is built from the Steelworks pinwheel: circles with one square
+quarter cut away, turning around the centre. Two of them (top and bottom)
+read as an "S" on their own.
+
+  python packaging/make_icon.py            -> pixel "SW" in black (default)
+  python packaging/make_icon.py s          -> the S from two pinwheel pieces
+  python packaging/make_icon.py pinwheel   -> all four pieces
+
+Writes icon.png (1024), icon.ico, icon.icns, icon-256.png and the app's UI icon.
+"""
 import os
 import sys
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-S = 1024
-
-# Vertical colour stops (position 0..1, RGB), sampled from the reference look.
-STOPS = [(0.00, (14, 112, 210)), (0.36, (28, 152, 228)), (0.50, (140, 188, 236)),
-         (0.60, (226, 214, 238)), (0.74, (240, 206, 228)), (0.84, (240, 150, 168)),
-         (0.93, (222, 72, 62)), (1.00, (150, 30, 24))]
+RED_TOP = (255, 82, 36)
+RED_BOTTOM = (240, 60, 16)
+INK = (17, 17, 17)
 
 
-def lerp(a, b, t):
-    return tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3))
+def squircle_mask(size: int, inset: int, n: float = 5.0, ss: int = 4) -> Image.Image:
+    """Continuous-corner rounded square (superellipse), like an iOS/macOS icon."""
+    big = size * ss
+    m = Image.new("L", (big, big), 0)
+    px = m.load()
+    c, r = big / 2, big / 2 - inset * ss
+    for y in range(big):
+        dy = abs((y + 0.5 - c) / r)
+        if dy >= 1:
+            continue
+        half = (1 - dy ** n) ** (1 / n) * r
+        for x in range(max(0, int(c - half)), min(big, int(c + half) + 1)):
+            px[x, y] = 255
+    return m.resize((size, size), Image.LANCZOS)
 
 
-def gradient(size):
-    col = Image.new("RGB", (1, size))
+def piece(draw: ImageDraw.ImageDraw, cx: float, cy: float, r: float, cut: int) -> None:
+    """A circle with one square quarter removed. cut: 0=bottom-right, 1=bottom-left, 2=top-left, 3=top-right."""
+    # Draw the three remaining quarters as pie slices (PIL angles: 0 = east, clockwise).
+    start = {0: 90, 1: 180, 2: 270, 3: 0}[cut]          # the quarter we skip begins here, going back 90 deg
+    missing = (start - 90) % 360
+    draw.pieslice((cx - r, cy - r, cx + r, cy + r), missing + 90, missing + 360, fill=255)
+
+
+# 5 x 7 pixel glyphs for the "SW" monogram
+GLYPH_S = [".###.", "#...#", "#....", ".###.", "....#", "#...#", ".###."]
+GLYPH_W = ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"]
+
+
+def mark(size: int, style: str) -> Image.Image:
+    ss = 4
+    S = size * ss
+    m = Image.new("L", (S, S), 0)
+    d = ImageDraw.Draw(m)
+    if style == "sw":
+        # Pixel-built SW (11 x 7 cells), solid strokes, centred.
+        inset = S * 0.1
+        cell = round((S - 2 * inset) * 0.60 / 11)
+        ox, oy = (S - 11 * cell) // 2, (S - 7 * cell) // 2
+        for gi, glyph in enumerate((GLYPH_S, GLYPH_W)):
+            for ry, row in enumerate(glyph):
+                for rx, ch in enumerate(row):
+                    if ch == "#":
+                        x0, y0 = ox + (gi * 6 + rx) * cell, oy + ry * cell
+                        d.rectangle((x0, y0, x0 + cell, y0 + cell), fill=255)
+        return m.resize((size, size), Image.LANCZOS)
+    if style == "s":
+        # Two pieces stacked so their cut corners face each other: reads as an S.
+        r = S * 0.17
+        layout = [((-0.5, -1.0), 0), ((0.5, 1.0), 2)]
+    else:
+        # The full pinwheel, like the Steelworks mark.
+        r = S * 0.112
+        layout = [((-0.54, -1.6), 0), ((1.6, -0.54), 1), ((0.54, 1.6), 2), ((-1.6, 0.54), 3)]
+    for (ox, oy), cut in layout:
+        piece(d, S / 2 + ox * r, S / 2 + oy * r, r, cut)
+    return m.resize((size, size), Image.LANCZOS)
+
+
+def draw(size: int = 1024, style: str = "sw") -> Image.Image:
+    inset = round(size * 0.1)
+    bg = Image.new("RGB", (size, size))
+    g = ImageDraw.Draw(bg)
     for y in range(size):
         t = y / (size - 1)
-        for (p0, c0), (p1, c1) in zip(STOPS, STOPS[1:]):
-            if p0 <= t <= p1:
-                col.putpixel((0, y), lerp(c0, c1, (t - p0) / (p1 - p0)))
-                break
-    return col.resize((size, size))
-
-
-def squircle(size, inset, n=4.2):
-    """Superellipse mask |x|^n + |y|^n <= 1 (the soft, puffy Apple-like shape)."""
-    m = Image.new("L", (size, size), 0)
-    px = m.load()
-    r = size / 2 - inset
-    c = size / 2
-    for y in range(size):
-        dy = abs((y + 0.5 - c) / r)
-        if dy > 1:
-            continue
-        dx_max = (1 - dy ** n) ** (1 / n)
-        x0, x1 = int(c - dx_max * r), int(c + dx_max * r)
-        for x in range(max(0, x0), min(size, x1 + 1)):
-            px[x, y] = 255
-    return m
-
-
-def font(px):
-    cands = ["/System/Library/Fonts/SFNSRounded.ttf", "/System/Library/Fonts/SFNS.ttf",
-             "/Library/Fonts/SF-Pro-Display-Bold.otf", "/System/Library/Fonts/Helvetica.ttc",
-             r"C:\Windows\Fonts\segoeuib.ttf", r"C:\Windows\Fonts\seguisb.ttf", r"C:\Windows\Fonts\arialbd.ttf",
-             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]
-    for c in cands:
-        if os.path.exists(c):
-            try:
-                f = ImageFont.truetype(c, px)
-                try:
-                    f.set_variation_by_name("Bold")
-                except Exception:
-                    pass
-                return f
-            except OSError:
-                continue
-    return ImageFont.load_default()
-
-
-def draw(size=S):
-    inset = int(size * 0.085)                  # macOS icon grid: ~10% transparent margin
-    shape = squircle(size, inset)
-    body = gradient(size).convert("RGBA")
-    # Soft edges: feather the mask a little, and darken the rim so it glows like the reference.
-    soft = shape.filter(ImageFilter.GaussianBlur(size * 0.004))
-    rim = ImageChops.subtract(shape, shape.filter(ImageFilter.GaussianBlur(size * 0.05)))
-    shade = Image.new("RGBA", (size, size), (10, 20, 60, 0))
-    shade.putalpha(rim.point(lambda v: int(v * 0.22)))
-    body = Image.alpha_composite(body, shade)
-    # Warm outer glow at the bottom.
-    glow = Image.new("RGBA", (size, size), (225, 60, 40, 0))
-    gmask = shape.filter(ImageFilter.GaussianBlur(size * 0.055))
-    lower = Image.linear_gradient("L").resize((size, size)).point(lambda v: min(255, max(0, v - 110) * 2))
-    glow.putalpha(ImageChops.multiply(gmask, lower).point(lambda v: int(v * 0.95)))
-
-    out = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    out = Image.alpha_composite(out, glow)
-    body.putalpha(soft)
-    out = Image.alpha_composite(out, body)
-
-    # "SW" lettering, white with a gentle shadow, optically centred slightly high.
-    f = font(int(size * 0.36))
-    txt = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(txt)
-    box = d.textbbox((0, 0), "SW", font=f)
-    w, h = box[2] - box[0], box[3] - box[1]
-    pos = ((size - w) / 2 - box[0], (size - h) / 2 - box[1] - size * 0.02)
-    shadow = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).text((pos[0], pos[1] + size * 0.012), "SW", font=f, fill=(20, 30, 80, 90))
-    out = Image.alpha_composite(out, shadow.filter(ImageFilter.GaussianBlur(size * 0.015)))
-    d.text(pos, "SW", font=f, fill=(255, 255, 255, 245))
-    return Image.alpha_composite(out, txt)
+        g.line([(0, y), (size, y)], fill=tuple(round(RED_TOP[i] + (RED_BOTTOM[i] - RED_TOP[i]) * t) for i in range(3)))
+    icon = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    icon.paste(bg, (0, 0), squircle_mask(size, inset))
+    from PIL import ImageChops
+    shape = squircle_mask(size, inset)
+    icon.paste(Image.new("RGBA", (size, size), INK + (255,)), (0, 0), ImageChops.multiply(mark(size, style), shape))
+    return icon
 
 
 if __name__ == "__main__":
-    big = draw(S)
+    style = sys.argv[1] if len(sys.argv) > 1 else "sw"
+    big = draw(1024, style)
     big.save(os.path.join(HERE, "icon.png"))
     big.save(os.path.join(HERE, "icon.ico"), sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     big.save(os.path.join(HERE, "icon.icns"))
-    ui = os.path.join(HERE, "..", "app", "smo", "ui")
-    big.resize((128, 128), Image.LANCZOS).save(os.path.join(ui, "icon.png"))
     big.resize((256, 256), Image.LANCZOS).save(os.path.join(HERE, "icon-256.png"))
-    print("icons written")
+    draw(128, style).save(os.path.join(HERE, "..", "app", "smo", "ui", "icon.png"))
+    print("icons written:", style)

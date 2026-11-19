@@ -19,7 +19,7 @@ import zipfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 NAME = "Steelworks Media Optimiser"
 SLUG = "Steelworks-Media-Optimiser"
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 DIST = os.path.join(ROOT, "dist")
 import tempfile
 # Short path: Windows resource stamping (icon/version) fails on very long paths.
@@ -100,6 +100,7 @@ def mac_dmg():
     else:
         run(["codesign", "--force", "--deep", "-s", "-", app])   # ad-hoc: required on Apple silicon
     arch = os.environ.get("SMO_TARGET_ARCH") or platform.machine()
+    os.makedirs(DIST, exist_ok=True)
     dmg = os.path.join(DIST, f"{SLUG}-{VERSION}-macOS-{arch}.dmg")
     stage = os.path.join(ROOT, "build", "dmg")
     shutil.rmtree(stage, ignore_errors=True)

@@ -2,7 +2,7 @@
 
 Makes heavy Figma Slides decks fast again, without Claude and without anyone touching a script.
 
-It reads every slide, then, step by step and with your approval:
+Click **Optimise deck** and it does all of this by itself, asking only once, before anything is deleted. Each step also has its own page for anyone who wants control:
 
 | Step | What happens |
 |---|---|
@@ -30,6 +30,14 @@ Get the latest version from **[Releases](../../releases/latest)**:
 Then follow the **[user guide](docs/USER_GUIDE.md)**: it walks through every screen.
 
 ## What it looks like
+
+**One click:** open a deck, click **Optimise deck**, approve what gets removed, done.
+
+| Start | The one question | Done |
+|---|---|---|
+| ![Optimise](docs/images/00-optimise-start.png) | ![Ask](docs/images/00-optimise-ask.png) | ![Done](docs/images/00-optimise-done.png) |
+
+**Or step by step:**
 
 | | |
 |---|---|
@@ -204,11 +212,11 @@ python scripts/run_js_tests.py
 
 | Platform | Command | Output (in `dist/`) |
 |---|---|---|
-| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` | `Steelworks-Media-Optimiser-1.0.5-Windows-Setup.exe` |
-| macOS | `./scripts/build_macos.sh` (run on a Mac) | `Steelworks-Media-Optimiser-1.0.5-macOS-<arch>.dmg` |
-| Both | `.github/workflows/build.yml`: push a tag like `v1.0.5`, or Actions › *Build installers* › Run | Windows, macOS arm64 and macOS x86_64, published as a Release when tagged |
+| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` | `Steelworks-Media-Optimiser-1.0.6-Windows-Setup.exe` |
+| macOS | `./scripts/build_macos.sh` (run on a Mac) | `Steelworks-Media-Optimiser-1.0.6-macOS-<arch>.dmg` |
+| Both | `.github/workflows/build.yml`: push a tag like `v1.0.6`, or Actions › *Build installers* › Run | Windows, macOS arm64 and macOS x86_64, published as a Release when tagged |
 
-Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.5.zip`. The build runs all tests first (`--skip-tests` skips them). On Windows it bundles ffmpeg from your PATH (`--no-ffmpeg` to skip). On macOS it bundles ffmpeg only if you put static `ffmpeg`/`ffprobe` builds in `vendor/ffmpeg/`, because Homebrew's build isn't self-contained. To sign and notarise on macOS, set `SMO_SIGN_IDENTITY="Developer ID Application: …"` and `SMO_NOTARY_PROFILE=<notarytool keychain profile>`. Bundled ffmpeg is GPL-licensed, which is fine for internal use. Check before distributing outside the studio.
+Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.6.zip`. The build runs all tests first (`--skip-tests` skips them). On Windows it bundles ffmpeg from your PATH (`--no-ffmpeg` to skip). On macOS it bundles ffmpeg only if you put static `ffmpeg`/`ffprobe` builds in `vendor/ffmpeg/`, because Homebrew's build isn't self-contained. To sign and notarise on macOS, set `SMO_SIGN_IDENTITY="Developer ID Application: …"` and `SMO_NOTARY_PROFILE=<notarytool keychain profile>`. Bundled ffmpeg is GPL-licensed, which is fine for internal use. Check before distributing outside the studio.
 
 ## Security
 

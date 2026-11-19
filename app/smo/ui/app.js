@@ -70,6 +70,7 @@
   // ----------------------------------------------------------------- steps
   var STEPS = [
     { id: 'connect', label: 'Connect', hint: 'Figma, Dropbox, plugin' },
+    { id: 'optimise', label: 'Optimise', hint: 'One click does it all' },
     { id: 'deck', label: 'Choose deck', hint: 'Paste a Figma link' },
     { id: 'review', label: 'Review', hint: 'What makes it heavy' },
     { id: 'cleanup', label: 'Clean up', hint: 'Hidden & covered media' },
@@ -84,6 +85,7 @@
     var c = S.connections;
     switch (id) {
       case 'connect': return c.plugin.connected && (c.dropbox.signedIn || (!c.dropbox.configured && !!c.dropbox.localRoot));
+      case 'optimise': return S.auto && S.auto.status === 'done';
       case 'deck': return !!(S.deck && S.deck.name);
       case 'review': return S.scan.status === 'done';
       case 'images': return S.images.status === 'done';
@@ -164,6 +166,73 @@
       card(ICON.dropbox, 'dropbox', 'Dropbox', dBody, dRight, dDone) +
       card(ICON.film, 'tool', 'Video tools', c.ffmpeg.ok ? 'Built in and ready.' : 'ffmpeg wasn’t found, so images will work but videos won’t. See <a data-open="settings">Settings</a> › ffmpeg ⓘ.', '', c.ffmpeg.ok) +
       '<div class="actions"><span class="spacer"></span><button class="btn large" data-next' + (pl.connected ? '' : ' disabled') + '>Continue</button></div></div>';
+  };
+
+  var PH_ICON = { pending: '<span class="ph-dot"></span>', running: '<span class="spinner"></span>', waiting: '<span class="ph-wait">!</span>',
+    done: '<span class="ph-ok">' + '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>' + '</span>',
+    skipped: '<span class="ph-skip">–</span>', error: '<span class="ph-err">!</span>' };
+
+  function phaseList(A) {
+    return '<ol class="phases">' + A.phases.map(function (p) {
+      return '<li class="ph ' + p.status + '">' + PH_ICON[p.status] + '<div><div class="ph-label">' + esc(p.label) + '</div>' +
+        (p.detail ? '<div class="ph-detail">' + esc(p.detail) + '</div>' : '') + '</div></li>';
+    }).join('') + '</ol>';
+  }
+
+  V.optimise = function () {
+    var A = S.auto || { status: 'idle' }, pl = S.connections.plugin;
+    var deckName = esc(((pl.file || {}).name) || (S.deck || {}).name || 'your deck');
+    if (A.status === 'idle' || (A.status === 'error' && !A.phases)) {
+      var ready = pl.connected;
+      return '<div class="page"><div class="hero-opt">' +
+        '<img src="icon.png" class="hero-icon" alt="">' +
+        '<h1>Optimise ' + (ready ? '“' + deckName + '”' : 'your deck') + '</h1>' +
+        '<p class="lede" style="margin:0 auto 28px">One click. The app reads every slide, makes every image, GIF and video lighter with no visible difference, tidies spacing and alignment, and saves a report. It asks you once, before anything is deleted.</p>' +
+        (ready ? '<button class="btn large hero-btn" data-a="auto.run">Optimise deck</button>'
+               : '<button class="btn large hero-btn" disabled>Optimise deck</button><p class="small muted" style="margin-top:12px">First open the deck in Figma and connect the plugin. <a data-go="connect">How?</a></p>') +
+        '<p class="small muted" style="margin-top:18px">Takes a few minutes for a big deck. Figma keeps a version from before, so everything can be undone.</p>' +
+        '</div><div class="what-grid">' +
+        [['Clean up', 'Hidden, switched-off and covered media'], ['Images', 'Sized for the slide, quality-checked'], ['Videos & GIFs', 'Found in Dropbox, compressed, swapped'],
+         ['Layout', S.gap + ' px thumbnail gaps, aligned headers & text'], ['Report', 'Before & after, plus anything to do by hand']]
+          .map(function (w) { return '<div class="what"><b>' + w[0] + '</b><span>' + w[1] + '</span></div>'; }).join('') +
+        '</div><p class="small muted" style="text-align:center;margin-top:20px">Prefer to go step by step? Use the steps on the left.</p></div>';
+    }
+    if (A.status === 'running' || A.status === 'waiting') {
+      var act = S.activity || {};
+      var gate = '';
+      if (A.status === 'waiting') {
+        var items = S.cleanup.items.filter(function (i) { return i.status === 'pending'; });
+        var sel = items.filter(function (i) { return i.selected; }).length;
+        gate = '<div class="card gate"><h2>Before anything is removed</h2><p class="muted small" style="margin:2px 0 12px">These layers can’t be seen on the slides: they’re hidden, switched off, outside the slide or completely covered. Untick any you want to keep.</p>' +
+          '<div class="table-wrap" style="max-height:260px"><table><tbody>' + items.map(function (i) {
+            return '<tr><td style="width:28px"><input type="checkbox" class="check" data-toggle="' + esc(i.key) + '"' + (i.selected ? ' checked' : '') + '></td><td class="num" style="width:56px">Slide ' + i.slideIndex +
+              '</td><td class="name">' + esc(i.name) + '</td><td class="small muted">' + esc(i.reason) + '</td><td class="num">' + mb(i.bytes) + '</td><td><a data-focus="' + esc(i.nodeId) + '">Show</a></td></tr>';
+          }).join('') + '</tbody></table></div><div class="actions"><button class="btn secondary" data-a="auto.continue" data-p=\'{"remove":false}\'>Keep them all</button><span class="spacer"></span>' +
+          '<button class="btn large" data-a="auto.continue"' + (sel ? '' : ' disabled') + '>Remove ' + plural(sel, 'layer') + ' and continue</button></div></div>';
+      }
+      return '<div class="page"><h1>Optimising “' + deckName + '”</h1><p class="lede">' + (A.status === 'waiting' ? 'One question, then it carries on by itself.' : esc(act.title || 'Working…') + (act.detail ? ' · ' + esc(act.detail) : '')) + '</p>' +
+        gate + '<div class="card">' + phaseList(A) + (act.progress != null && A.status === 'running' ? '<div class="progress" style="margin-top:14px"><i style="width:' + Math.round(act.progress * 100) + '%"></i></div>' : '') +
+        '<div class="actions" style="margin-top:14px"><span class="small muted">Keep the plugin open in Figma while this runs.</span><span class="spacer"></span>' +
+        (A.stopping ? '<span class="small muted">Stopping after this step…</span>' : '<button class="btn plain" data-a="auto.stop">Stop</button>') + '</div></div></div>';
+    }
+    // done (or stopped with results)
+    var r = S.report || {};
+    var b = r.before || A.before || 0, a = r.after == null ? b : r.after, saved = b - a;   // live: updates as videos are placed
+    var readyItems = S.videos.items.filter(function (v) { return v.status === 'ready'; });
+    var ready = readyItems.length, seen = {}, more = 0;
+    readyItems.forEach(function (v) { var k = v.kind + v.hash; if (!seen[k] && v.before && v.after) { seen[k] = 1; more += v.before - v.after; } });
+    var hand = saveCard(false);
+    return '<div class="page"><div class="hero-opt done">' +
+      '<div class="done-badge">' + PH_ICON.done + '</div>' +
+      '<h1>' + (A.status === 'error' ? 'Finished with a problem' : 'Done. ' + deckName + ' is ' + pct(a, b) + '% lighter' + (ready ? ' so far' : '')) + '</h1>' +
+      '<div class="bigsave"><div><span class="muted small">Before</span><b>' + mb(b) + '</b></div><div class="arrowbig">→</div><div><span class="muted small">After</span><b class="better">' + mb(a) + '</b></div></div>' +
+      '<p class="muted">' + mb(saved) + ' less to download, with no visible difference.' + (ready && more > 0 ? ' Drag in the ' + plural(ready, 'video') + ' below to save another ' + mb(more) + '.' : '') + '</p></div>' +
+      '<div class="card">' + phaseList(A) + '</div>' +
+      (ready ? '<div class="card"><div class="card-row"><div class="grow"><h3>' + plural(ready, 'video') + ' ready to drag in</h3><div class="muted small">Figma doesn’t let apps place videos by themselves. Click below: the app shows each file and the plugin puts it exactly where the old one was.</div></div><button class="btn" data-a="videos.place">Replace in Figma</button></div></div>' : '') +
+      hand +
+      '<div class="actions"><button class="btn secondary" data-go="report">See full report</button>' +
+      (r.exportedTo ? '<button class="btn secondary" data-a="open" data-p="' + esc(JSON.stringify({ path: r.exportedTo })) + '">Show report folder</button>' : '') +
+      '<span class="spacer"></span><button class="btn plain" data-a="auto.reset">Optimise another deck</button></div></div>';
   };
 
   V.deck = function () {
