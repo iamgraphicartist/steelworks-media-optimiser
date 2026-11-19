@@ -11,6 +11,7 @@ Click **Optimise deck** and it does all of this by itself, asking only once, bef
 | **Images** | Resizes to 2× the on-slide size, so images stay sharp on high-res screens (max 4096 px, never upscaled). Photos become JPEG 92 with full colour detail, transparent images WebP, and logos or graphics stay lossless. Every result is compared with the original (PSNR ≥ 40 dB, i.e. no visible difference) and only kept if it looks the same **and** is at least 30% smaller. Crops and scale modes stay exactly the same. |
 | **Videos & GIFs** | Finds each original video in the Steelworks Dropbox (team folders, shared folders, files that aren't synced), proves it's the exact file by SHA-1, compresses it (1080p, H.264 CRF 22, AAC 128k, faststart) and puts it back. GIFs become silent, looping, autoplaying MP4s. |
 | **Spacing** | Sets thumbnail grids to even gaps (12 px by default; change it in Settings), keeping the outer edges. Collages and overlapping layouts are skipped. |
+| **Deck details** | Edit the cover, the client name in the header and the date in the footer across every slide at once, keeping fonts and styles. Dates can be set to today as *19 November 2026* or *November 2026*, by hand or automatically when optimising. |
 | **Alignment** | Puts repeating headers and footers (logos, titles, page numbers) in the same place on every slide, and snaps text and layers that sit a few pixels off a margin or column. |
 | **Report** | Before and after sizes, an HTML report, a **replace list** (CSV) for anything that needs a person, and an **undo log**. |
 
@@ -217,11 +218,11 @@ python scripts/run_js_tests.py
 
 | Platform | Command | Output (in `dist/`) |
 |---|---|---|
-| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` | `Steelworks-Media-Optimiser-1.0.8-Windows-Setup.exe` |
-| macOS | `./scripts/build_macos.sh` (run on a Mac) | `Steelworks-Media-Optimiser-1.0.8-macOS-<arch>.dmg` |
-| Both | `.github/workflows/build.yml`: push a tag like `v1.0.8`, or Actions › *Build installers* › Run | Windows, macOS arm64 and macOS x86_64, published as a Release when tagged |
+| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` | `Steelworks-Media-Optimiser-1.0.9-Windows-Setup.exe` |
+| macOS | `./scripts/build_macos.sh` (run on a Mac) | `Steelworks-Media-Optimiser-1.0.9-macOS-<arch>.dmg` |
+| Both | `.github/workflows/build.yml`: push a tag like `v1.0.9`, or Actions › *Build installers* › Run | Windows, macOS arm64 and macOS x86_64, published as a Release when tagged |
 
-Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.8.zip`. The build runs all tests first (`--skip-tests` skips them). On Windows it bundles ffmpeg from your PATH (`--no-ffmpeg` to skip). On macOS it bundles ffmpeg only if you put static `ffmpeg`/`ffprobe` builds in `vendor/ffmpeg/`, because Homebrew's build isn't self-contained. To sign and notarise on macOS, set `SMO_SIGN_IDENTITY="Developer ID Application: …"` and `SMO_NOTARY_PROFILE=<notarytool keychain profile>`. Bundled ffmpeg is GPL-licensed, which is fine for internal use. Check before distributing outside the studio.
+Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.9.zip`. The build runs all tests first (`--skip-tests` skips them). On Windows it bundles ffmpeg from your PATH (`--no-ffmpeg` to skip). On macOS it bundles ffmpeg only if you put static `ffmpeg`/`ffprobe` builds in `vendor/ffmpeg/`, because Homebrew's build isn't self-contained. To sign and notarise on macOS, set `SMO_SIGN_IDENTITY="Developer ID Application: …"` and `SMO_NOTARY_PROFILE=<notarytool keychain profile>`. Bundled ffmpeg is GPL-licensed, which is fine for internal use. Check before distributing outside the studio.
 
 ## Security
 

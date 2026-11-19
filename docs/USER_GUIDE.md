@@ -36,6 +36,14 @@ The very first time the plugin starts, the app asks **Allow** once:
 
 Paste the deck's share link (in Figma: **Share › Copy link**) and press **Open**. You don't need to open the deck in Figma first. Already have it open with the plugin running? Just continue.
 
+### Deck details: client name and dates
+
+Under the link, **Deck details** shows the cover text and the text repeated in the header and footer of the slides (for example the client name at the top and the date at the bottom). Click **Load details**, change any line, and click **Save to deck**. It updates every slide at once and keeps each line's own font and style.
+
+Next to every date there are two one-click buttons with today's date: **19 November 2026** and **November 2026**.
+
+To keep dates current automatically, turn on **Settings › Dates › Set dates to today when optimising** and pick the style (*Keep each date's current style*, *19 November 2026* or *November 2026*).
+
 ## 3 · Optimise: one click does it all
 
 ![Optimise](images/00-optimise-start.png)

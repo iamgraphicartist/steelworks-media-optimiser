@@ -385,3 +385,96 @@ var SMOCore = (function () {
   };
 })();
 if (typeof module !== 'undefined') module.exports = SMOCore;
+
+/* ---------------------------------------------------------- deck dates
+ * Recognise a date line ("November 2026", "19 November 2026", "November 19, 2026",
+ * "Nov 2026", "19/11/2026", "11/2026", "2026-11") and write another date either in
+ * the same style or in a chosen one: 'day' -> "19 November 2026", 'month' -> "November 2026". */
+var SMODates = (function () {
+  'use strict';
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var M = '(January|February|March|April|May|June|July|August|September|October|November|December)';
+  var A = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
+  var rx = [
+    { kind: 'dayLong', re: new RegExp('^\\s*(\\d{1,2})(st|nd|rd|th)?\\s+' + M + '(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'longDay', re: new RegExp('^\\s*' + M + '\\s+(\\d{1,2})(st|nd|rd|th)?(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'long', re: new RegExp('^\\s*' + M + '(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'dayShort', re: new RegExp('^\\s*(\\d{1,2})\\s+' + A + '(\\.?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'short', re: new RegExp('^\\s*' + A + '(\\.?)(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'dmy', re: /^\s*(\d{1,2})([\/.])(\d{1,2})\2(\d{4})\s*$/ },
+    { kind: 'num', re: /^\s*(\d{1,2})([\/.])(\d{4})\s*$/ },
+    { kind: 'iso', re: /^\s*(\d{4})-(\d{1,2})\s*$/ }
+  ];
+  function mIndex(word) {
+    var w = word.toLowerCase();
+    for (var i = 0; i < 12; i++) if (MONTHS[i].toLowerCase() === w || MONTHS[i].slice(0, 3).toLowerCase() === w.slice(0, 3)) return i;
+    return -1;
+  }
+  function caseLike(sample, word) {
+    if (sample === sample.toUpperCase()) return word.toUpperCase();
+    if (sample === sample.toLowerCase()) return word.toLowerCase();
+    return word;
+  }
+  function pad(n, yes) { n = String(n); return yes && n.length === 1 ? '0' + n : n; }
+
+  /** -> {kind, day|null, month (0-11), year, ...style} or null */
+  function detect(text) {
+    for (var i = 0; i < rx.length; i++) {
+      var m = rx[i].re.exec(text || '');
+      if (!m) continue;
+      var k = rx[i].kind, d;
+      if (k === 'dayLong') d = { day: +m[1], suffix: m[2] || '', month: mIndex(m[3]), sample: m[3], comma: m[4], year: +m[5] };
+      else if (k === 'longDay') d = { day: +m[2], suffix: m[3] || '', month: mIndex(m[1]), sample: m[1], comma: m[4], year: +m[5] };
+      else if (k === 'long') d = { day: null, month: mIndex(m[1]), sample: m[1], comma: m[2], year: +m[3] };
+      else if (k === 'dayShort') d = { day: +m[1], month: mIndex(m[2]), sample: m[2], dot: m[3], year: +m[4], sept: m[2].length === 4 };
+      else if (k === 'short') d = { day: null, month: mIndex(m[1]), sample: m[1], dot: m[2], comma: m[3], year: +m[4], sept: m[1].length === 4 };
+      else if (k === 'dmy') d = { day: +m[1], month: +m[3] - 1, sep: m[2], year: +m[4], padD: m[1].length === 2, padM: m[3].length === 2 };
+      else if (k === 'num') d = { day: null, month: +m[1] - 1, sep: m[2], year: +m[3], padM: m[1].length === 2 };
+      else d = { day: null, month: +m[2] - 1, year: +m[1], padM: m[2].length === 2 };
+      if (d.month < 0 || d.month > 11 || (d.day != null && (d.day < 1 || d.day > 31))) continue;
+      d.kind = k;
+      return d;
+    }
+    return null;
+  }
+  function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+
+  /** Write the date in the same style as `like` (a detect() result). */
+  function format(like, day, month, year) {
+    var name = MONTHS[month], abbr = like.sept && month === 8 ? 'Sept' : name.slice(0, 3);
+    switch (like.kind) {
+      case 'dayLong': return (like.suffix ? ordinal(day) : day) + ' ' + caseLike(like.sample, name) + (like.comma || '') + ' ' + year;
+      case 'longDay': return caseLike(like.sample, name) + ' ' + (like.suffix ? ordinal(day) : day) + (like.comma || '') + ' ' + year;
+      case 'long': return caseLike(like.sample, name) + (like.comma || '') + ' ' + year;
+      case 'dayShort': return day + ' ' + caseLike(like.sample, abbr) + (like.dot || '') + ' ' + year;
+      case 'short': return caseLike(like.sample, abbr) + (like.dot || '') + (like.comma || '') + ' ' + year;
+      case 'dmy': return pad(day, like.padD) + like.sep + pad(month + 1, like.padM) + like.sep + year;
+      case 'num': return pad(month + 1, like.padM) + like.sep + year;
+      case 'iso': return year + '-' + pad(month + 1, like.padM);
+    }
+    return null;
+  }
+
+  /** A chosen style, keeping the line's capitalisation:
+   *  'day' -> "19 November 2026", 'month' -> "November 2026", 'keep' -> same style as before. */
+  function styled(like, style, date) {
+    var d = date.getDate(), m = date.getMonth(), y = date.getFullYear();
+    if (style === 'day' || style === 'month' || !like) {
+      var sample = like && like.sample ? like.sample : 'November';
+      var name = caseLike(sample, MONTHS[m]);
+      return style === 'day' ? d + ' ' + name + ' ' + y : name + ' ' + y;
+    }
+    return format(like, d, m, y);
+  }
+
+  /** The same line set to `date` (default today) in `style`; null if the line isn't a date. */
+  function toDate(text, style, date) {
+    var d = detect(text);
+    if (!d) return null;
+    return styled(d, style || 'keep', date || new Date());
+  }
+  function toMonth(text, date) { return toDate(text, 'keep', date); }
+  function today(style, date) { return styled(null, style, date || new Date()); }
+  return { detect: detect, format: format, toDate: toDate, toMonth: toMonth, today: today, MONTHS: MONTHS };
+})();
+if (typeof module !== 'undefined') module.exports.SMODates = SMODates;

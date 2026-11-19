@@ -33,7 +33,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.8"
+VERSION = "1.0.9"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 
@@ -108,6 +108,7 @@ class Engine:
         self._rpc: dict[str, tuple[asyncio.Future, Optional[Callable]]] = {}
         self.pair_code = store.get("pair_code") or self._new_code()
         self.plugin_tokens: list = store.get("plugin_tokens") or []
+        self._auto_stop = False
         self._pair_waiters: list = []
         self.inv: Optional[dict] = None
         self.undo: list[dict] = []
@@ -120,7 +121,7 @@ class Engine:
             "scan": {"status": "idle"}, "images": {"status": "idle", "items": []},
             "cleanup": {"status": "idle", "items": []}, "videos": {"status": "idle", "items": []},
             "spacing": {"status": "idle", "grids": []}, "align": {"status": "idle", "items": []}, "report": {},
-            "auto": {"status": "idle"}, "undo": {"count": 0, "reversible": 0},
+            "auto": {"status": "idle"}, "details": {"status": "idle"}, "undo": {"count": 0, "reversible": 0},
         }
         self.state["gap"] = self.gap()
         self._refresh_connections()
@@ -286,7 +287,7 @@ class Engine:
         else:
             fut.set_result(m.get("result"))
 
-    DECK_CHANGES = {"swapImages", "removeItems", "applySpacing", "applyMoves", "placeVideo", "saveVersion"}
+    DECK_CHANGES = {"swapImages", "removeItems", "applySpacing", "applyMoves", "placeVideo", "saveVersion", "setText", "datesToThisMonth"}
 
     async def plugin_call(self, method: str, params: Optional[dict] = None, on_progress=None, timeout: float = 3600):
         if method in self.DECK_CHANGES and getattr(self, "_auto_stop", False) and self._busy == "optimising the deck":
@@ -371,6 +372,8 @@ class Engine:
         out = {k: self.cfg.get(k) or "" for k in keys}
         out["thumbnail_gap"] = self.gap()
         out["quality"] = self.quality()
+        out["auto_date"] = bool(self.cfg.get("auto_date"))
+        out["date_style"] = self.cfg.get("date_style") or "keep"
         out["figma_client_secret_set"] = bool(self.figma_auth.client_secret())
         out["sources"] = {k: self.cfg.source_of(k) for k in keys}
         out["dataDir"] = "the app’s data folder" if self.demo else _short(data_dir())
@@ -410,6 +413,10 @@ class Engine:
         for k in ("figma_client_id", "dropbox_app_key", "local_dropbox_root", "ffmpeg"):
             if k in p:
                 self.cfg.set(k, (p[k] or "").strip())
+        if "auto_date" in p:
+            self.cfg.set("auto_date", bool(p["auto_date"]))
+        if p.get("date_style") in ("keep", "day", "month"):
+            self.cfg.set("date_style", p["date_style"])
         if p.get("quality") in imglib.PRESETS:
             self.cfg.set("quality", p["quality"])
         if p.get("thumbnail_gap") not in (None, ""):
@@ -1109,7 +1116,7 @@ class Engine:
         return " · ".join(bits) or "Nothing to change"
 
     def _auto_set(self, pid, status, detail=""):
-        for ph in self.state["auto"]["phases"]:
+        for ph in self.state["auto"].get("phases", []):
             if ph["id"] == pid:
                 ph.update(status=status, detail=detail)
         self.state["auto"]["phase"] = pid
@@ -1322,10 +1329,17 @@ class Engine:
             g = await self._spacing()
             await self._align_scan({})
             a = await self._align_run()
-            return {"grids": g.get("grids", 0), "moved": a.get("moved", 0)}
+            dates = 0
+            if self.cfg.get("auto_date"):
+                await self._ensure_version()
+                r = await self.plugin_call("datesToThisMonth", {"style": self.cfg.get("date_style") or "keep"}, timeout=300)
+                self._log_undo([dict(e, type="text") for e in r.get("log", []) if e.get("ok")])
+                dates = r.get("changed", 0)
+            return {"grids": g.get("grids", 0), "moved": a.get("moved", 0), "dates": dates}
         lay = await step("layout", layout)
         if lay is not None:
-            self._auto_set("layout", "done", f"{lay['grids']} grid{'s' if lay['grids'] != 1 else ''} evened · {lay['moved']} layer{'s' if lay['moved'] != 1 else ''} aligned")
+            self._auto_set("layout", "done", f"{lay['grids']} grid{'s' if lay['grids'] != 1 else ''} evened · {lay['moved']} layer{'s' if lay['moved'] != 1 else ''} aligned"
+                           + (f" · {lay['dates']} date{'s' if lay['dates'] != 1 else ''} set to today" if lay.get("dates") else ""))
 
         # 6. Report (saved quietly; shown on the summary)
         rep = await step("report", lambda: self.a_report_export({"open": False}))
@@ -1338,6 +1352,55 @@ class Engine:
         saved = (r.get("before") or 0) - (r.get("after") or 0)
         self.activity("Deck optimised", f"{reportlib.mb(r.get('before'))} → {reportlib.mb(r.get('after'))} · {reportlib.mb(saved)} saved", 1)
         return A
+
+    # ---------------------------------------------------------- deck details
+    async def a_details_read(self, p):
+        """Cover lines and the repeated header/footer text. Opens the chosen deck first if needed."""
+        return await self._exclusive("reading the deck details", self._details_read(p.get("url") or ""))
+
+    async def _details_read(self, url: str):
+        self._auto_stop = False
+        self.state["details"] = {"status": "loading"}
+        self.changed()
+        try:
+            if url:
+                await self._open_deck(url)
+            r = await self.plugin_call("readDetails", {}, timeout=120)
+        except Exception as e:
+            self.state["details"] = {"status": "error", "error": str(e)}
+            self.changed()
+            raise
+        self.state["details"] = {"status": "ready", "deck": r.get("deck"), "cover": r.get("cover", []), "groups": r.get("groups", [])}
+        self.changed()
+        return self.state["details"]
+
+    async def a_details_save(self, p):
+        return await self._exclusive("updating the deck details", self._details_save(p))
+
+    async def _details_save(self, p):
+        d = self.state.get("details") or {}
+        edits = []
+        cover = {f"{c['nodeId']}#{c['line']}": c for c in d.get("cover", [])}
+        for k, text in (p.get("cover") or {}).items():
+            c = cover.get(k)
+            if c and text != c["text"]:
+                edits.append({"nodeId": c["nodeId"], "line": c["line"], "text": text})
+        groups = {g["key"]: g for g in d.get("groups", [])}
+        for k, text in (p.get("groups") or {}).items():
+            g = groups.get(k)
+            if g and text.strip() and text != g["text"]:
+                edits += [{"nodeId": n, "line": None, "text": text} for n in g["nodes"]]
+        if not edits:
+            return {"changed": 0}
+        await self._ensure_version()
+        res = await self.plugin_call("setText", {"edits": edits}, timeout=300)
+        log = res.get("log", [])
+        ok = sum(1 for e in log if e.get("ok"))
+        bad = [e.get("error") for e in log if not e.get("ok")]
+        self._log_undo([dict(e, type="text") for e in log if e.get("ok")])
+        await self._details_read("")
+        self.activity("Deck details updated", f"{ok} text layer{'s' if ok != 1 else ''} changed" + (f" · {len(bad)} couldn’t be changed: {bad[0]}" if bad else ""))
+        return {"changed": ok, "problems": bad}
 
     async def a_focus(self, p):
         return await self.plugin_call("focus", {"nodeId": p["nodeId"]}, timeout=20)

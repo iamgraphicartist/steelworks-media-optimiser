@@ -30,7 +30,7 @@ function sha1hex(bytes) {
 }
 
 function MockFigma(opts) {
-  var self = this, nextId = 1, listeners = {}, images = {}, videos = {}, storage = {};
+  var self = this, nextId = 1, listeners = {}, images = {}, videos = {}, storage = {}, fontsLoaded = {};
   self.log = opts.log || function () {};
   self.onMutate = opts.onMutate || function () {};
   var mutate = function () { self.onMutate(); };
@@ -52,6 +52,7 @@ function MockFigma(opts) {
     this.relativeTransform = [[1, 0, p.x || 0], [0, 1, p.y || 0]];
     this.width = p.w || 100; this.height = p.h || 100;
     this._fills = freeze(p.fills || []);
+    if (type === 'TEXT') { this.characters = p.characters != null ? p.characters : (p.name || ''); this.fontName = { family: 'Inter', style: p.bold ? 'Bold' : 'Regular' }; }
     this.parent = null; this.removed = false;
     if (['FRAME', 'SLIDE', 'GROUP', 'PAGE', 'SLIDE_GRID', 'SLIDE_ROW', 'DOCUMENT'].indexOf(type) >= 0) this.children = [];
   }
@@ -92,6 +93,16 @@ function MockFigma(opts) {
     // keep the child's absolute position like Figma does when re-parenting
     this.children.splice(i, 0, c); c.parent = this; mutate(); return c;
   };
+  Node.prototype.getRangeAllFontNames = function () { return [this.fontName]; };
+  Node.prototype.insertCharacters = function (i, s) {
+    if (!fontsLoaded[this.fontName.family + '|' + this.fontName.style]) throw new Error('Cannot write to node with unloaded font "' + this.fontName.family + '"');
+    this.characters = this.characters.slice(0, i) + s + this.characters.slice(i); mutate();
+  };
+  Node.prototype.deleteCharacters = function (a, b) {
+    if (!fontsLoaded[this.fontName.family + '|' + this.fontName.style]) throw new Error('Cannot write to node with unloaded font');
+    this.characters = this.characters.slice(0, a) + this.characters.slice(b); mutate();
+  };
+  Node.prototype.findOne = function (fn) { var r = this.findAll(fn); return r.length ? r[0] : null; };
   Node.prototype.findAll = function (fn) {
     var out = [];
     (function rec(n) { (n.children || []).forEach(function (c) { if (!fn || fn(c)) out.push(c); rec(c); }); })(this);
@@ -158,6 +169,7 @@ function MockFigma(opts) {
       var h = sha1hex(bytes); images[h] = bytes; self.log('createImage ' + h.slice(0, 10) + ' (' + bytes.length + ' bytes)');
       return imageObj(h);
     },
+    loadFontAsync: function (f) { fontsLoaded[f.family + '|' + f.style] = true; return Promise.resolve(); },
     saveVersionHistoryAsync: function (title) { self.log('Saved version: ' + title); return Promise.resolve({ id: 'v' + Date.now() }); },
     viewport: { scrollAndZoomIntoView: function (n) { if (opts.onFocus) opts.onFocus(n[0]); } },
     notify: function (t) { self.log('notify: ' + t); },

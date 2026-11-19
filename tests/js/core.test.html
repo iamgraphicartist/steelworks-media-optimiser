@@ -215,6 +215,33 @@ T('aligned decks need no changes', function () {
   eq(C.alignmentPlan(clean, 1920, 1080, C.detectGuides(clean, 1920, 1080)), []);
 });
 
+// ---- deck dates
+var D = SMODates, NOV19 = new Date(2026, 10, 19), JAN5 = new Date(2027, 0, 5);
+T('recognises the common date styles', function () {
+  ['November 2026', '19 November 2026', 'November 19, 2026', '19th November 2026', 'Nov 2026', 'NOVEMBER 2026', '19/11/2026', '11/2026', '11.2026', '2026-11']
+    .forEach(function (t) { if (!D.detect(t)) throw new Error('not recognised: ' + t); });
+  ['Hello!', 'ACME', 'Page 12', '2026', '13/2026', 'Q4 2026'].forEach(function (t) { if (D.detect(t)) throw new Error('wrongly a date: ' + t); });
+});
+T('keep style: same format, new date', function () {
+  eq(D.toDate('November 2026', 'keep', JAN5), 'January 2027');
+  eq(D.toDate('19 November 2026', 'keep', JAN5), '5 January 2027');
+  eq(D.toDate('November 19, 2026', 'keep', JAN5), 'January 5, 2027');
+  eq(D.toDate('19th November 2026', 'keep', JAN5), '5th January 2027');
+  eq(D.toDate('NOV 2026', 'keep', JAN5), 'JAN 2027');
+  eq(D.toDate('19/11/2026', 'keep', JAN5), '05/01/2027');
+  eq(D.toDate('11/2026', 'keep', JAN5), '01/2027');
+  eq(D.toDate('2026-11', 'keep', JAN5), '2027-01');
+});
+T('chosen style: 19 November 2026 or November 2026', function () {
+  eq(D.toDate('November 2026', 'day', NOV19), '19 November 2026');
+  eq(D.toDate('19 November 2026', 'month', NOV19), 'November 2026');
+  eq(D.toDate('11/2026', 'day', NOV19), '19 November 2026');
+  eq(D.toDate('NOVEMBER 2026', 'day', NOV19), '19 NOVEMBER 2026', 'capitals kept');
+  eq(D.today('day', NOV19), '19 November 2026');
+  eq(D.today('month', NOV19), 'November 2026');
+});
+T('not a date: left alone', function () { eq(D.toDate('ACME', 'day', NOV19), null); });
+
 var fails = results.filter(function (r) { return r.indexOf('FAIL') === 0; }).length;
 document.getElementById('result').textContent = results.join('\n') + '\n\n' + (results.length - fails) + ' passed, ' + fails + ' failed\nRESULT:' + (fails ? 'FAIL' : 'PASS');
 </script>

@@ -53,7 +53,7 @@
               d.style.width = (k.width / 19.2) + '%'; d.style.height = (k.height / 10.8) + '%';
               d.style.borderRadius = (k.cornerRadius / 4) + 'px';
               var f = k._fills.filter(function (p) { return p.visible !== false; }).slice(-1)[0];
-              if (k.type === 'TEXT') { d.className += ' text'; d.textContent = k.name; }
+              if (k.type === 'TEXT') { d.className += ' text'; d.textContent = k.characters; }
               else if (f && f.type === 'IMAGE') { d.style.backgroundImage = 'url(' + urlFor(f.imageHash) + ')'; d.style.backgroundSize = f.scaleMode === 'FIT' ? 'contain' : 'cover'; d.style.backgroundRepeat = 'no-repeat'; }
               else if (f && f.type === 'VIDEO') { d.className += ' vid'; d.textContent = '▶ ' + k.name; }
               if (k.id === focusId) d.className += ' focus';

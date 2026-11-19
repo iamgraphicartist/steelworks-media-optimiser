@@ -241,6 +241,48 @@
       '<span class="spacer"></span><button class="btn plain" data-a="auto.reset">Optimise another deck</button></div></div>';
   };
 
+
+  // ------------------------------------------------------- deck details
+  var draft = { cover: {}, groups: {} };
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function todayText(style, sample) {
+    var d = new Date(), name = MONTHS[d.getMonth()];
+    if (sample && sample === sample.toUpperCase() && /[A-Z]/.test(sample)) name = name.toUpperCase();
+    return style === 'day' ? d.getDate() + ' ' + name + ' ' + d.getFullYear() : name + ' ' + d.getFullYear();
+  }
+  function detailRow(kind, key, label, text, isDate, note) {
+    var val = draft[kind][key] != null ? draft[kind][key] : text;
+    var changed = val !== text;
+    return '<div class="dt-row"><label>' + esc(label) + (note ? ' <span class="opt">' + esc(note) + '</span>' : '') + '</label>' +
+      '<div class="input-row"><input class="input' + (changed ? ' changed' : '') + '" data-dk="' + kind + '|' + esc(key) + '" value="' + esc(val) + '" spellcheck="false">' +
+      (isDate ? '<button class="btn secondary mini-date" data-date="' + kind + '|' + esc(key) + '|day">' + esc(todayText('day', text)) + '</button>' +
+                '<button class="btn secondary mini-date" data-date="' + kind + '|' + esc(key) + '|month">' + esc(todayText('month', text)) + '</button>' : '') +
+      '</div></div>';
+  }
+  function detailsCard() {
+    var D = S.details || { status: 'idle' }, dk = S.deck || {}, pl = S.connections.plugin;
+    var head = '<div class="card-row" style="margin-bottom:12px"><div class="grow"><h2>Deck details</h2><div class="muted small">The cover, and the text repeated in the header and footer of every slide. Change it here and it updates across the whole deck, keeping each line’s font and style.</div></div>';
+    if (D.status === 'idle' || D.status === 'error') {
+      var can = dk.key || pl.connected;
+      return '<div class="card">' + head + '<button class="btn secondary" data-a="details.read" data-p="' + esc(JSON.stringify({ url: dk.url || '' })) + '"' + (can ? '' : ' disabled') + '>Load details</button></div>' +
+        (D.status === 'error' ? '<p class="small" style="color:var(--red);margin:0">' + esc(D.error) + '</p>' : '<p class="small muted" style="margin:0">' + (dk.key && !(pl.connected && dk.pluginMatches !== false) ? 'The app opens the deck in Figma to read it.' : '') + '</p>') + '</div>';
+    }
+    if (D.status === 'loading') return '<div class="card">' + head + '</div><div class="progress indeterminate"><i></i></div><p class="small muted">Opening the deck and reading its cover, header and footer…</p></div>';
+    var rows = '';
+    (D.cover || []).forEach(function (c, i) {
+      rows += detailRow('cover', c.nodeId + '#' + c.line, c.isDate ? 'Cover · date' : 'Cover · line ' + (i + 1), c.text, c.isDate);
+    });
+    (D.groups || []).forEach(function (g) {
+      rows += detailRow('groups', g.key, (g.band === 'header' ? 'Header' : 'Footer') + (g.isDate ? ' · date' : ''), g.text, g.isDate, 'on ' + g.slides + ' slides');
+    });
+    if (!rows) rows = '<p class="muted small">No cover text, header or footer found on this deck.</p>';
+    var pending = Object.keys(draft.cover).some(function (k) { var c = (D.cover || []).filter(function (x) { return x.nodeId + '#' + x.line === k; })[0]; return c && c.text !== draft.cover[k]; }) ||
+      Object.keys(draft.groups).some(function (k) { var g = (D.groups || []).filter(function (x) { return x.key === k; })[0]; return g && g.text !== draft.groups[k]; });
+    return '<div class="card">' + head + '<button class="btn plain" data-a="details.read" data-p="{}">Reload</button></div>' + rows +
+      '<div class="actions"><span class="small muted">Figma keeps a version from before, so changes can be undone.</span><span class="spacer"></span>' +
+      (pending ? '<button class="btn secondary" data-discard>Discard</button>' : '') + '<button class="btn" data-save-details' + (pending ? '' : ' disabled') + '>Save to deck</button></div></div>';
+  }
+
   V.deck = function () {
     var d = S.deck || {}, pl = S.connections.plugin;
     var card = '';
@@ -258,7 +300,7 @@
     }
     return '<div class="page"><h1>Choose a deck</h1><p class="lede">Paste the link to any Figma Slides deck (in Figma: <b>Share › Copy link</b>). You don’t need to open it: the app opens it in Figma and starts the plugin when you optimise.</p>' +
       '<div class="card"><div class="input-row"><input class="input" id="deckUrl" placeholder="https://www.figma.com/slides/…" value="' + esc(d.url || '') +
-      '" spellcheck="false"><button class="btn" id="deckGo">Open</button></div></div>' + '<div id="deckCard">' + card + '</div>' +
+      '" spellcheck="false"><button class="btn" id="deckGo">Open</button></div></div>' + '<div id="deckCard">' + card + '</div>' + detailsCard() +
       '<div class="actions"><span class="spacer"></span><button class="btn large" data-go="optimise"' + (d.key || pl.connected ? '' : ' disabled') + '>Continue to Optimise</button></div></div>';
   };
 
@@ -466,7 +508,8 @@
     if (!S) return;
     renderSidebar();
     renderStatus();
-    var focused = document.activeElement && document.activeElement.id === 'deckUrl';
+    var ae = document.activeElement;
+    var focused = ae && (ae.id === 'deckUrl' || (ae.dataset && ae.dataset.dk));
     if (focused && !force) return; // don't steal the cursor while typing
     var html = (V[view] || V.connect)();
     if (html !== lastHtml || force) {
@@ -490,13 +533,26 @@
 
   // ------------------------------------------------------------- events
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-step],[data-a],[data-next],[data-go],[data-focus],[data-reveal],[data-open],[data-toggle],[data-toggle-all],[data-grid],[data-align],[data-align-all],[data-url]');
+    var t = e.target.closest('[data-step],[data-a],[data-next],[data-go],[data-focus],[data-reveal],[data-open],[data-toggle],[data-toggle-all],[data-grid],[data-align],[data-align-all],[data-url],[data-date],[data-save-details],[data-discard]');
     if (!t) return;
     if (t.dataset.step) return go(t.dataset.step);
     if (t.hasAttribute('data-next')) return nextStep();
     if (t.dataset.go) return go(t.dataset.go);
     if (t.dataset.open === 'settings') return openSettings();
     if (t.dataset.url) { if (!t.closest('#settings')) act('open_url', { url: t.dataset.url }); return; }
+    if (t.dataset.date) {
+      var parts = t.dataset.date.split('|'), kind = parts[0], style = parts[parts.length - 1], key = parts.slice(1, -1).join('|');
+      var inp = document.querySelector('[data-dk="' + kind + '|' + key.replace(/"/g, '\\"') + '"]');
+      draft[kind][key] = t.textContent; if (inp) { inp.value = t.textContent; inp.classList.add('changed'); }
+      return render(true);
+    }
+    if (t.hasAttribute('data-discard')) { draft = { cover: {}, groups: {} }; return render(true); }
+    if (t.hasAttribute('data-save-details')) {
+      t.disabled = true;
+      return act('details.save', { cover: draft.cover, groups: draft.groups }).then(function (r) {
+        draft = { cover: {}, groups: {} }; toast(r && r.changed ? 'Saved to the deck' : 'Nothing changed'); render(true);
+      }, function () { t.disabled = false; });
+    }
     if (t.dataset.reveal) return act('videos.reveal', { key: t.dataset.reveal });
     if (t.hasAttribute('data-toggle-all')) return act('cleanup.toggle', { all: t.checked });
     if (t.dataset.toggle) return act('cleanup.toggle', { key: t.dataset.toggle });
@@ -516,6 +572,10 @@
       ['figma_client_id', 'dropbox_app_key', 'local_dropbox_root', 'ffmpeg'].forEach(function (k) { $('s_' + k).value = s[k] || ''; });
       $('s_thumbnail_gap').value = s.thumbnail_gap;
       $('s_quality').value = s.quality || 'best';
+      $('s_auto_date').checked = !!s.auto_date;
+      $('s_date_style').value = s.date_style || 'keep';
+      $('s_date_style').options[1].textContent = todayText('day');
+      $('s_date_style').options[2].textContent = todayText('month');
       $('s_figma_client_secret').value = '';
       var det = s.detected || {};
       $('s_local_dropbox_root').placeholder = det.local_dropbox_root ? 'Found automatically: ' + det.local_dropbox_root : 'Not found — see ⓘ';
@@ -567,9 +627,20 @@
     var p = {};
     ['figma_client_id', 'dropbox_app_key', 'local_dropbox_root', 'ffmpeg', 'figma_client_secret', 'thumbnail_gap', 'quality'].forEach(function (k) { p[k] = $('s_' + k).value; });
     if (!p.figma_client_secret) delete p.figma_client_secret;
+    p.auto_date = $('s_auto_date').checked;
+    p.date_style = $('s_date_style').value;
     act('settings.save', p, 'Settings saved').then(function () { $('settings').classList.remove('on'); });
   };
   $('s_forget').onclick = function () { act('plugin.forget', {}, 'Plugins unpaired. A new code is shown on the Connect page.'); };
+
+  document.addEventListener('input', function (e) {
+    var k = e.target.dataset && e.target.dataset.dk;
+    if (!k) return;
+    var i = k.indexOf('|');
+    draft[k.slice(0, i)][k.slice(i + 1)] = e.target.value;
+    e.target.classList.add('changed');
+    var b = document.querySelector('[data-save-details]'); if (b) b.disabled = false;
+  });
 
   connect();
 })();

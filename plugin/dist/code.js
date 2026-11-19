@@ -387,6 +387,99 @@ var SMOCore = (function () {
 })();
 if (typeof module !== 'undefined') module.exports = SMOCore;
 
+/* ---------------------------------------------------------- deck dates
+ * Recognise a date line ("November 2026", "19 November 2026", "November 19, 2026",
+ * "Nov 2026", "19/11/2026", "11/2026", "2026-11") and write another date either in
+ * the same style or in a chosen one: 'day' -> "19 November 2026", 'month' -> "November 2026". */
+var SMODates = (function () {
+  'use strict';
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  var M = '(January|February|March|April|May|June|July|August|September|October|November|December)';
+  var A = '(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)';
+  var rx = [
+    { kind: 'dayLong', re: new RegExp('^\\s*(\\d{1,2})(st|nd|rd|th)?\\s+' + M + '(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'longDay', re: new RegExp('^\\s*' + M + '\\s+(\\d{1,2})(st|nd|rd|th)?(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'long', re: new RegExp('^\\s*' + M + '(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'dayShort', re: new RegExp('^\\s*(\\d{1,2})\\s+' + A + '(\\.?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'short', re: new RegExp('^\\s*' + A + '(\\.?)(,?)\\s+(\\d{4})\\s*$', 'i') },
+    { kind: 'dmy', re: /^\s*(\d{1,2})([\/.])(\d{1,2})\2(\d{4})\s*$/ },
+    { kind: 'num', re: /^\s*(\d{1,2})([\/.])(\d{4})\s*$/ },
+    { kind: 'iso', re: /^\s*(\d{4})-(\d{1,2})\s*$/ }
+  ];
+  function mIndex(word) {
+    var w = word.toLowerCase();
+    for (var i = 0; i < 12; i++) if (MONTHS[i].toLowerCase() === w || MONTHS[i].slice(0, 3).toLowerCase() === w.slice(0, 3)) return i;
+    return -1;
+  }
+  function caseLike(sample, word) {
+    if (sample === sample.toUpperCase()) return word.toUpperCase();
+    if (sample === sample.toLowerCase()) return word.toLowerCase();
+    return word;
+  }
+  function pad(n, yes) { n = String(n); return yes && n.length === 1 ? '0' + n : n; }
+
+  /** -> {kind, day|null, month (0-11), year, ...style} or null */
+  function detect(text) {
+    for (var i = 0; i < rx.length; i++) {
+      var m = rx[i].re.exec(text || '');
+      if (!m) continue;
+      var k = rx[i].kind, d;
+      if (k === 'dayLong') d = { day: +m[1], suffix: m[2] || '', month: mIndex(m[3]), sample: m[3], comma: m[4], year: +m[5] };
+      else if (k === 'longDay') d = { day: +m[2], suffix: m[3] || '', month: mIndex(m[1]), sample: m[1], comma: m[4], year: +m[5] };
+      else if (k === 'long') d = { day: null, month: mIndex(m[1]), sample: m[1], comma: m[2], year: +m[3] };
+      else if (k === 'dayShort') d = { day: +m[1], month: mIndex(m[2]), sample: m[2], dot: m[3], year: +m[4], sept: m[2].length === 4 };
+      else if (k === 'short') d = { day: null, month: mIndex(m[1]), sample: m[1], dot: m[2], comma: m[3], year: +m[4], sept: m[1].length === 4 };
+      else if (k === 'dmy') d = { day: +m[1], month: +m[3] - 1, sep: m[2], year: +m[4], padD: m[1].length === 2, padM: m[3].length === 2 };
+      else if (k === 'num') d = { day: null, month: +m[1] - 1, sep: m[2], year: +m[3], padM: m[1].length === 2 };
+      else d = { day: null, month: +m[2] - 1, year: +m[1], padM: m[2].length === 2 };
+      if (d.month < 0 || d.month > 11 || (d.day != null && (d.day < 1 || d.day > 31))) continue;
+      d.kind = k;
+      return d;
+    }
+    return null;
+  }
+  function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+
+  /** Write the date in the same style as `like` (a detect() result). */
+  function format(like, day, month, year) {
+    var name = MONTHS[month], abbr = like.sept && month === 8 ? 'Sept' : name.slice(0, 3);
+    switch (like.kind) {
+      case 'dayLong': return (like.suffix ? ordinal(day) : day) + ' ' + caseLike(like.sample, name) + (like.comma || '') + ' ' + year;
+      case 'longDay': return caseLike(like.sample, name) + ' ' + (like.suffix ? ordinal(day) : day) + (like.comma || '') + ' ' + year;
+      case 'long': return caseLike(like.sample, name) + (like.comma || '') + ' ' + year;
+      case 'dayShort': return day + ' ' + caseLike(like.sample, abbr) + (like.dot || '') + ' ' + year;
+      case 'short': return caseLike(like.sample, abbr) + (like.dot || '') + (like.comma || '') + ' ' + year;
+      case 'dmy': return pad(day, like.padD) + like.sep + pad(month + 1, like.padM) + like.sep + year;
+      case 'num': return pad(month + 1, like.padM) + like.sep + year;
+      case 'iso': return year + '-' + pad(month + 1, like.padM);
+    }
+    return null;
+  }
+
+  /** A chosen style, keeping the line's capitalisation:
+   *  'day' -> "19 November 2026", 'month' -> "November 2026", 'keep' -> same style as before. */
+  function styled(like, style, date) {
+    var d = date.getDate(), m = date.getMonth(), y = date.getFullYear();
+    if (style === 'day' || style === 'month' || !like) {
+      var sample = like && like.sample ? like.sample : 'November';
+      var name = caseLike(sample, MONTHS[m]);
+      return style === 'day' ? d + ' ' + name + ' ' + y : name + ' ' + y;
+    }
+    return format(like, d, m, y);
+  }
+
+  /** The same line set to `date` (default today) in `style`; null if the line isn't a date. */
+  function toDate(text, style, date) {
+    var d = detect(text);
+    if (!d) return null;
+    return styled(d, style || 'keep', date || new Date());
+  }
+  function toMonth(text, date) { return toDate(text, 'keep', date); }
+  function today(style, date) { return styled(null, style, date || new Date()); }
+  return { detect: detect, format: format, toDate: toDate, toMonth: toMonth, today: today, MONTHS: MONTHS };
+})();
+if (typeof module !== 'undefined') module.exports.SMODates = SMODates;
+
 // ---- main.js
 /* Steelworks Media Optimiser — Figma plugin main thread.
  * The plugin is the app's hands inside Figma. The desktop app sends commands
@@ -394,7 +487,7 @@ if (typeof module !== 'undefined') module.exports = SMOCore;
  * document happens here.
  */
 /* global SMOCore, figma, __html__ */
-var PLUGIN_VERSION = '1.0.8';
+var PLUGIN_VERSION = '1.0.9';
 var MEDIA = { IMAGE: true, VIDEO: true };
 
 figma.showUI(__html__, { width: 340, height: 480, themeColors: true, title: 'Steelworks Media Optimiser' });
@@ -831,6 +924,95 @@ var handlers = {
     }
     progress(rpcId, { phase: 'guided', label: 'Waiting for the file to be dragged in' });
     return await guidedPlace(node, origPaint, p);
+  },
+
+  /** Deck details: cover lines (first slide) and text repeated in the header/footer of the slides. */
+  readDetails: async function () {
+    var slides = await getSlides();
+    if (!slides.length) return { cover: [], groups: [] };
+    var groups = {}, inBand = {};
+    slides.forEach(function (slide, si) {
+      var o = slide.absoluteTransform, H = slide.height;
+      slide.findAll(function (n) { return n.type === 'TEXT' && n.visible !== false; }).forEach(function (t) {
+        var y = t.absoluteTransform[1][2] - o[1][2], cy = y + t.height / 2;
+        var band = cy < H * 0.15 ? 'header' : cy > H * 0.85 ? 'footer' : null;
+        var text = (t.characters || '').trim();
+        if (!band || !text || text.length > 80 || text.indexOf('\n') >= 0) return;
+        if (/^\d{1,3}$/.test(text)) return;                       // page numbers aren't details
+        var k = band + '|' + text;
+        var g = groups[k] = groups[k] || { key: k, band: band, text: text, nodes: [], slides: {} };
+        g.nodes.push(t.id); g.slides[si] = 1; inBand[t.id] = true;
+      });
+    });
+    var list = Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      return { key: g.key, band: g.band, text: g.text, nodes: g.nodes, slides: Object.keys(g.slides).length,
+        isDate: !!SMODates.detect(g.text) };
+    }).filter(function (g) { return g.slides >= 2; })
+      .sort(function (a, b) { return (a.band === b.band ? 0 : a.band === 'header' ? -1 : 1) || b.slides - a.slides; }).slice(0, 6);
+    // Cover: the first slide's own lines (not the repeated header/footer), top to bottom.
+    var cover = [], first = slides[0], o0 = first.absoluteTransform;
+    first.findAll(function (n) { return n.type === 'TEXT' && n.visible !== false && !inBand[n.id]; })
+      .sort(function (a, b) { return (a.absoluteTransform[1][2] - b.absoluteTransform[1][2]) || (a.absoluteTransform[0][2] - b.absoluteTransform[0][2]); })
+      .forEach(function (t) {
+        (t.characters || '').split('\n').forEach(function (line, li) {
+          if (line.trim() && cover.length < 8) cover.push({ nodeId: t.id, line: li, text: line, isDate: !!SMODates.detect(line), slide: 1 });
+        });
+      });
+    var groupsOnCover = list.filter(function (g) { return g.nodes.some(function (id) { return first.findOne(function (n) { return n.id === id; }); }); });
+    return { cover: cover, groups: list, deck: figma.root.name, coverAlsoHas: groupsOnCover.map(function (g) { return g.key; }) };
+  },
+
+  /** edits: [{nodeId, line (index, or null for the whole layer), text}] — keeps each line's own font and style. */
+  setText: async function (p) {
+    var byNode = {}, log = [];
+    p.edits.forEach(function (e) { (byNode[e.nodeId] = byNode[e.nodeId] || []).push(e); });
+    var ids = Object.keys(byNode);
+    for (var i = 0; i < ids.length; i++) {
+      var node = await nodeById(ids[i]);
+      if (!node || node.type !== 'TEXT') { log.push({ nodeId: ids[i], ok: false, error: 'Text layer not found' }); continue; }
+      try {
+        var fonts = node.characters.length ? node.getRangeAllFontNames(0, node.characters.length) : [node.fontName];
+        for (var f = 0; f < fonts.length; f++) await figma.loadFontAsync(fonts[f]);
+        // Highest line first, so earlier offsets stay valid.
+        var edits = byNode[ids[i]].slice().sort(function (a, b) { return (b.line == null ? -1 : b.line) - (a.line == null ? -1 : a.line); });
+        var before = node.characters;
+        edits.forEach(function (e) {
+          var start = 0, end = node.characters.length;
+          if (e.line != null) {
+            var lines = node.characters.split('\n');
+            if (e.line >= lines.length) return;
+            for (var l = 0; l < e.line; l++) start += lines[l].length + 1;
+            end = start + lines[e.line].length;
+          }
+          if (end === start) { node.insertCharacters(start, e.text, 'BEFORE'); return; }
+          // Insert the new text using the style of the first old character, then remove the old text.
+          node.insertCharacters(start, e.text, 'AFTER');
+          node.deleteCharacters(start + e.text.length, end + e.text.length);
+        });
+        log.push({ type: 'text', nodeId: node.id, before: before, after: node.characters, ok: true });
+      } catch (err) {
+        var msg = String(err.message || err);
+        if (/font/i.test(msg)) msg = 'A font used here isn’t available on this computer, so this text was left as it is.';
+        log.push({ nodeId: ids[i], ok: false, error: msg });
+      }
+    }
+    return { log: log };
+  },
+
+  /** Set every date on the cover and in the footers to this month, keeping each one's style. */
+  datesToThisMonth: async function (p) {
+    var style = (p && p.style) || 'keep';
+    var d = await handlers.readDetails();
+    var edits = [];
+    d.cover.forEach(function (c) { var v = c.isDate && SMODates.toDate(c.text, style); if (v && v !== c.text) edits.push({ nodeId: c.nodeId, line: c.line, text: v }); });
+    d.groups.forEach(function (g) {
+      var v = g.isDate && SMODates.toDate(g.text, style);
+      if (v && v !== g.text) g.nodes.forEach(function (id) { edits.push({ nodeId: id, line: null, text: v }); });
+    });
+    if (!edits.length) return { changed: 0, log: [] };
+    var r = await handlers.setText({ edits: edits });
+    return { changed: r.log.filter(function (e) { return e.ok; }).length, log: r.log };
   },
 
   /** The app is switching to another deck: close this plugin window. */

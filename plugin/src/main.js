@@ -4,7 +4,7 @@
  * document happens here.
  */
 /* global SMOCore, figma, __html__ */
-var PLUGIN_VERSION = '1.0.8';
+var PLUGIN_VERSION = '1.0.9';
 var MEDIA = { IMAGE: true, VIDEO: true };
 
 figma.showUI(__html__, { width: 340, height: 480, themeColors: true, title: 'Steelworks Media Optimiser' });
@@ -441,6 +441,95 @@ var handlers = {
     }
     progress(rpcId, { phase: 'guided', label: 'Waiting for the file to be dragged in' });
     return await guidedPlace(node, origPaint, p);
+  },
+
+  /** Deck details: cover lines (first slide) and text repeated in the header/footer of the slides. */
+  readDetails: async function () {
+    var slides = await getSlides();
+    if (!slides.length) return { cover: [], groups: [] };
+    var groups = {}, inBand = {};
+    slides.forEach(function (slide, si) {
+      var o = slide.absoluteTransform, H = slide.height;
+      slide.findAll(function (n) { return n.type === 'TEXT' && n.visible !== false; }).forEach(function (t) {
+        var y = t.absoluteTransform[1][2] - o[1][2], cy = y + t.height / 2;
+        var band = cy < H * 0.15 ? 'header' : cy > H * 0.85 ? 'footer' : null;
+        var text = (t.characters || '').trim();
+        if (!band || !text || text.length > 80 || text.indexOf('\n') >= 0) return;
+        if (/^\d{1,3}$/.test(text)) return;                       // page numbers aren't details
+        var k = band + '|' + text;
+        var g = groups[k] = groups[k] || { key: k, band: band, text: text, nodes: [], slides: {} };
+        g.nodes.push(t.id); g.slides[si] = 1; inBand[t.id] = true;
+      });
+    });
+    var list = Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      return { key: g.key, band: g.band, text: g.text, nodes: g.nodes, slides: Object.keys(g.slides).length,
+        isDate: !!SMODates.detect(g.text) };
+    }).filter(function (g) { return g.slides >= 2; })
+      .sort(function (a, b) { return (a.band === b.band ? 0 : a.band === 'header' ? -1 : 1) || b.slides - a.slides; }).slice(0, 6);
+    // Cover: the first slide's own lines (not the repeated header/footer), top to bottom.
+    var cover = [], first = slides[0], o0 = first.absoluteTransform;
+    first.findAll(function (n) { return n.type === 'TEXT' && n.visible !== false && !inBand[n.id]; })
+      .sort(function (a, b) { return (a.absoluteTransform[1][2] - b.absoluteTransform[1][2]) || (a.absoluteTransform[0][2] - b.absoluteTransform[0][2]); })
+      .forEach(function (t) {
+        (t.characters || '').split('\n').forEach(function (line, li) {
+          if (line.trim() && cover.length < 8) cover.push({ nodeId: t.id, line: li, text: line, isDate: !!SMODates.detect(line), slide: 1 });
+        });
+      });
+    var groupsOnCover = list.filter(function (g) { return g.nodes.some(function (id) { return first.findOne(function (n) { return n.id === id; }); }); });
+    return { cover: cover, groups: list, deck: figma.root.name, coverAlsoHas: groupsOnCover.map(function (g) { return g.key; }) };
+  },
+
+  /** edits: [{nodeId, line (index, or null for the whole layer), text}] — keeps each line's own font and style. */
+  setText: async function (p) {
+    var byNode = {}, log = [];
+    p.edits.forEach(function (e) { (byNode[e.nodeId] = byNode[e.nodeId] || []).push(e); });
+    var ids = Object.keys(byNode);
+    for (var i = 0; i < ids.length; i++) {
+      var node = await nodeById(ids[i]);
+      if (!node || node.type !== 'TEXT') { log.push({ nodeId: ids[i], ok: false, error: 'Text layer not found' }); continue; }
+      try {
+        var fonts = node.characters.length ? node.getRangeAllFontNames(0, node.characters.length) : [node.fontName];
+        for (var f = 0; f < fonts.length; f++) await figma.loadFontAsync(fonts[f]);
+        // Highest line first, so earlier offsets stay valid.
+        var edits = byNode[ids[i]].slice().sort(function (a, b) { return (b.line == null ? -1 : b.line) - (a.line == null ? -1 : a.line); });
+        var before = node.characters;
+        edits.forEach(function (e) {
+          var start = 0, end = node.characters.length;
+          if (e.line != null) {
+            var lines = node.characters.split('\n');
+            if (e.line >= lines.length) return;
+            for (var l = 0; l < e.line; l++) start += lines[l].length + 1;
+            end = start + lines[e.line].length;
+          }
+          if (end === start) { node.insertCharacters(start, e.text, 'BEFORE'); return; }
+          // Insert the new text using the style of the first old character, then remove the old text.
+          node.insertCharacters(start, e.text, 'AFTER');
+          node.deleteCharacters(start + e.text.length, end + e.text.length);
+        });
+        log.push({ type: 'text', nodeId: node.id, before: before, after: node.characters, ok: true });
+      } catch (err) {
+        var msg = String(err.message || err);
+        if (/font/i.test(msg)) msg = 'A font used here isn’t available on this computer, so this text was left as it is.';
+        log.push({ nodeId: ids[i], ok: false, error: msg });
+      }
+    }
+    return { log: log };
+  },
+
+  /** Set every date on the cover and in the footers to this month, keeping each one's style. */
+  datesToThisMonth: async function (p) {
+    var style = (p && p.style) || 'keep';
+    var d = await handlers.readDetails();
+    var edits = [];
+    d.cover.forEach(function (c) { var v = c.isDate && SMODates.toDate(c.text, style); if (v && v !== c.text) edits.push({ nodeId: c.nodeId, line: c.line, text: v }); });
+    d.groups.forEach(function (g) {
+      var v = g.isDate && SMODates.toDate(g.text, style);
+      if (v && v !== g.text) g.nodes.forEach(function (id) { edits.push({ nodeId: id, line: null, text: v }); });
+    });
+    if (!edits.length) return { changed: 0, log: [] };
+    var r = await handlers.setText({ edits: edits });
+    return { changed: r.log.filter(function (e) { return e.ok; }).length, log: r.log };
   },
 
   /** The app is switching to another deck: close this plugin window. */

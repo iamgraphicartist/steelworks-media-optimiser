@@ -132,6 +132,15 @@ def main():
         s["children"].append(text(f"Page {i + 1:02d}", 1740, page_y[i], 60, 24))
         if title_x[i] is not None:
             s["children"].append(text("Slide title", title_x[i], 110 if i != 2 else 980, 700, 56))
+    # Deck details: cover lines, a repeated header name and a footer date on every slide.
+    for s in deck["slides"]:
+        for c in s["children"]:
+            if c.get("name") == "Steelworks logo":
+                c["characters"] = "SAMPLE CLIENT"
+        s["children"].append(text("Footer date", 120, 1010, 300, 30) | {"characters": "November 2026"})
+    deck["slides"][0]["children"] += [text("Cover date", 160, 640, 500, 40) | {"characters": "November 2026"},
+                                      text("Cover title", 160, 700, 1100, 160) | {"characters": "SAMPLE CLIENT
+Pitch Deck"}]
     with open(os.path.join(ROOT, "deck.json"), "w", encoding="utf-8") as f:
         json.dump({"deck": deck, "files": files}, f, indent=1)
     print("Samples written to", ROOT)
