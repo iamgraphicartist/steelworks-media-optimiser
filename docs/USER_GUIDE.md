@@ -15,28 +15,32 @@ Use this when a Figma Slides deck is slow to open or present. One deck takes abo
 
 ![Connect](images/01-connect.png)
 
-The video tools are built in. Two things to do, once:
+The video tools are built in, and the plugin is added to Figma for you. Two things to check, once:
 
-1. **Figma plugin:** click **Add to Figma** if it's there (Figma restarts for a moment; your files are saved automatically). Then open your deck and run **Plugins › Development › Steelworks Media Optimiser**, click **Connect** in the plugin, and **Allow** in the app.
+1. **Figma plugin:** if you see **Add to Figma**, click it (Figma restarts for a moment; your files are saved automatically). You don't need to open the plugin yourself: the app opens your deck and starts it when you optimise.
 2. **Dropbox:** click **Sign in with Dropbox** and allow access in your browser. Most project files only live online, so this is how the app finds them. If you also have the Dropbox app, files already on your computer are used first because it's faster.
 
-| In the plugin: click Connect | In the app: click Allow |
+The very first time the plugin starts, the app asks **Allow** once:
+
+| The plugin asks to connect | Click Allow in the app |
 |---|---|
 | ![Plugin](images/plugin-pair.png) | ![Allow](images/01b-connect-allow.png) |
-
-That's it. The plugin stays connected on this computer from now on. Keep its panel open while you work: it's the app's hands inside Figma.
-
-![Connected](images/plugin-connected.png)
 
 > **Settings** (bottom of the sidebar) is for unusual cases only, for example a Dropbox folder that wasn't found. Every field has an **ⓘ** that explains it.
 >
 > ![Settings](images/12-settings.png)
 
-## 2 · Optimise: one click does it all
+## 2 · Choose a deck
+
+![Choose deck](images/02-deck.png)
+
+Paste the deck's share link (in Figma: **Share › Copy link**) and press **Open**. You don't need to open the deck in Figma first. Already have it open with the plugin running? Just continue.
+
+## 3 · Optimise: one click does it all
 
 ![Optimise](images/00-optimise-start.png)
 
-Open the deck in Figma with the plugin running, then click **Optimise deck**. The app works through every step by itself: it reads the deck, makes every image, GIF and video lighter with no visible difference, evens out thumbnail gaps, lines up headers, footers and text, and saves a report.
+Click **Optimise deck**. The app opens the deck in Figma, starts the plugin, and works through every step by itself: it reads the deck, makes every image, GIF and video lighter with no visible difference, evens out thumbnail gaps, lines up headers, footers and text, and saves a report.
 
 **It asks you exactly once, before anything is deleted.** Untick anything you want to keep, then click **Remove … and continue** (or **Keep them all**):
 
@@ -52,12 +56,6 @@ When it's finished, you see what changed:
 That's the whole job for most decks. The steps below are the same work, one page at a time, for when you want more control.
 
 ## Step by step (optional)
-
-### Choose deck
-
-![Choose deck](images/02-deck.png)
-
-Paste the deck's link (**Share › Copy link** in Figma) and press **Open**. A green tag confirms that the plugin is running in that deck.
 
 ### Review
 

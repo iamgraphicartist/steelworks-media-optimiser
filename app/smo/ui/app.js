@@ -70,8 +70,8 @@
   // ----------------------------------------------------------------- steps
   var STEPS = [
     { id: 'connect', label: 'Connect', hint: 'Figma, Dropbox, plugin' },
-    { id: 'optimise', label: 'Optimise', hint: 'One click does it all' },
     { id: 'deck', label: 'Choose deck', hint: 'Paste a Figma link' },
+    { id: 'optimise', label: 'Optimise', hint: 'One click does it all' },
     { id: 'review', label: 'Review', hint: 'What makes it heavy' },
     { id: 'cleanup', label: 'Clean up', hint: 'Hidden & covered media' },
     { id: 'images', label: 'Images', hint: 'Resize & recompress' },
@@ -84,9 +84,9 @@
     if (!S) return false;
     var c = S.connections;
     switch (id) {
-      case 'connect': return c.plugin.connected && (c.dropbox.signedIn || (!c.dropbox.configured && !!c.dropbox.localRoot));
+      case 'connect': return (c.plugin.connected || !!(c.figmaApp || {}).registered) && (c.dropbox.signedIn || (!c.dropbox.configured && !!c.dropbox.localRoot));
       case 'optimise': return S.auto && S.auto.status === 'done';
-      case 'deck': return !!(S.deck && S.deck.name);
+      case 'deck': return !!(S.deck && (S.deck.key || S.deck.name)) || !!(c.plugin.connected && c.plugin.file);
       case 'review': return S.scan.status === 'done';
       case 'images': return S.images.status === 'done';
       case 'cleanup': return S.cleanup.status === 'done';
@@ -102,7 +102,7 @@
   function renderSidebar() {
     $('steps').innerHTML = STEPS.map(function (s, i) {
       var done = stepDone(s.id);
-      return '<li class="step' + (s.id === view ? ' active' : '') + (done ? ' done' : '') + '" data-step="' + s.id + '">' +
+      return (s.id === 'review' ? '<li class="steps-head">Step by step</li>' : '') + '<li class="step' + (s.id === view ? ' active' : '') + (done ? ' done' : '') + '" data-step="' + s.id + '">' +
         '<span class="step-num">' + (done ? ICON.check : i + 1) + '</span>' +
         '<span><div class="step-label">' + s.label + '</div><div class="step-hint">' + s.hint + '</div></span></li>';
     }).join('');
@@ -140,9 +140,10 @@
     var allow = S.pairRequest ? '<div class="callout" style="margin:12px 0 0;align-items:center">' + ICON.info +
       '<div class="grow"><b>The Figma plugin wants to connect.</b> Allow it to work on your decks?</div>' +
       '<button class="btn secondary" data-a="plugin.allow" data-p=\'{"allow":false}\'>Don’t allow</button><button class="btn" data-a="plugin.allow">Allow</button></div>' : '';
+    var fa = c.figmaApp || {};
     var plBody = pl.connected ? 'Connected to <b>' + esc((pl.file || {}).name || 'your deck') + '</b>. Keep the plugin open while you work.'
-      : '<ol class="steps-mini"><li>' + addStep(c.figmaApp || {}) + '</li>' +
-        '<li>Open your deck and run <b>Plugins › Development › Steelworks Media Optimiser</b>.</li><li>Click <b>Connect</b> in the plugin, then <b>Allow</b> here.</li></ol>' + allow;
+      : fa.registered ? 'Ready in Figma. The app opens your deck and starts the plugin for you when you optimise.' + allow
+      : '<ol class="steps-mini"><li>' + addStep(fa) + '</li><li>That’s it: the app starts the plugin by itself when you optimise a deck.</li></ol>' + allow;
     // 2 — Dropbox: on this computer and/or online — either is enough
     var local = d.localRoot
       ? '<span class="chip ok">' + ICON.check + ' Found</span><div class="mono small" style="margin-top:6px;word-break:break-all">' + esc(d.localRootShort || d.localRoot) + '</div><div class="muted small" style="margin-top:4px">Unsynced files download by themselves when needed.</div>'
@@ -161,11 +162,11 @@
       '<div class="option' + (d.localRoot ? ' on' : '') + '"><h4>On this computer</h4>' + local + '</div>' +
       '<div class="option' + (d.signedIn ? ' on' : (d.configured ? ' want' : '')) + '"><h4>Online <span class="chip info" style="margin-left:4px">Recommended</span></h4>' + online + '</div></div>';
     var dRight = '';
-    return '<div class="page"><h1>Connect</h1><p class="lede">' + (pl.connected ? 'You’re all set.' : 'One step and you’re ready. Everything else is set up automatically.') + '</p>' +
-      card(ICON.plug, 'plugin', 'Figma plugin', plBody, '', pl.connected) +
+    return '<div class="page"><h1>Connect</h1><p class="lede">' + (pl.connected || (S.connections.figmaApp || {}).registered ? 'You’re all set.' : 'One step and you’re ready. Everything else is set up automatically.') + '</p>' +
+      card(ICON.plug, 'plugin', 'Figma plugin', plBody, '', pl.connected || !!fa.registered) +
       card(ICON.dropbox, 'dropbox', 'Dropbox', dBody, dRight, dDone) +
       card(ICON.film, 'tool', 'Video tools', c.ffmpeg.ok ? 'Built in and ready.' : 'ffmpeg wasn’t found, so images will work but videos won’t. See <a data-open="settings">Settings</a> › ffmpeg ⓘ.', '', c.ffmpeg.ok) +
-      '<div class="actions"><span class="spacer"></span><button class="btn large" data-next' + (pl.connected ? '' : ' disabled') + '>Continue</button></div></div>';
+      '<div class="actions"><span class="spacer"></span><button class="btn large" data-next>Continue</button></div></div>';
   };
 
   var PH_ICON = { pending: '<span class="ph-dot"></span>', running: '<span class="spinner"></span>', waiting: '<span class="ph-wait">!</span>',
@@ -181,21 +182,23 @@
 
   V.optimise = function () {
     var A = S.auto || { status: 'idle' }, pl = S.connections.plugin;
-    var deckName = esc(((pl.file || {}).name) || (S.deck || {}).name || 'your deck');
+    var dk = S.deck || {};
+    var deckName = esc(dk.name || ((pl.file || {}).name) || 'your deck');
     if (A.status === 'idle' || (A.status === 'error' && !A.phases)) {
-      var ready = pl.connected;
+      var ready = !!dk.key || pl.connected;
       return '<div class="page"><div class="hero-opt">' +
         '<img src="icon.png" class="hero-icon" alt="">' +
         '<h1>Optimise ' + (ready ? '“' + deckName + '”' : 'your deck') + '</h1>' +
         '<p class="lede" style="margin:0 auto 28px">One click. The app reads every slide, makes every image, GIF and video lighter with no visible difference, tidies spacing and alignment, and saves a report. It asks you once, before anything is deleted.</p>' +
-        (ready ? '<button class="btn large hero-btn" data-a="auto.run">Optimise deck</button>'
-               : '<button class="btn large hero-btn" disabled>Optimise deck</button><p class="small muted" style="margin-top:12px">First open the deck in Figma and connect the plugin. <a data-go="connect">How?</a></p>') +
+        (ready ? '<button class="btn large hero-btn" data-a="auto.run" data-p="' + esc(JSON.stringify({ url: dk.url || '' })) + '">Optimise deck</button>' +
+                 '<p class="small muted" style="margin-top:12px">' + (dk.key && !(pl.connected && dk.pluginMatches !== false) ? 'The app will open it in Figma and start the plugin. ' : '') + '<a data-go="deck">Choose a different deck</a></p>'
+               : '<button class="btn large hero-btn" disabled>Optimise deck</button><p class="small muted" style="margin-top:12px"><a data-go="deck">Choose a deck first</a></p>') +
         '<p class="small muted" style="margin-top:18px">Takes a few minutes for a big deck. Figma keeps a version from before, so everything can be undone.</p>' +
         '</div><div class="what-grid">' +
         [['Clean up', 'Hidden, switched-off and covered media'], ['Images', 'Sized for the slide, quality-checked'], ['Videos & GIFs', 'Found in Dropbox, compressed, swapped'],
          ['Layout', S.gap + ' px thumbnail gaps, aligned headers & text'], ['Report', 'Before & after, plus anything to do by hand']]
           .map(function (w) { return '<div class="what"><b>' + w[0] + '</b><span>' + w[1] + '</span></div>'; }).join('') +
-        '</div><p class="small muted" style="text-align:center;margin-top:20px">Prefer to go step by step? Use the steps on the left.</p></div>';
+        '</div><p class="small muted" style="text-align:center;margin-top:20px">Prefer to go step by step? Use <b>Step by step</b> on the left.</p></div>';
     }
     if (A.status === 'running' || A.status === 'waiting') {
       var act = S.activity || {};
@@ -210,6 +213,9 @@
           }).join('') + '</tbody></table></div><div class="actions"><button class="btn secondary" data-a="auto.continue" data-p=\'{"remove":false}\'>Keep them all</button><span class="spacer"></span>' +
           '<button class="btn large" data-a="auto.continue"' + (sel ? '' : ' disabled') + '>Remove ' + plural(sel, 'layer') + ' and continue</button></div></div>';
       }
+      if (S.pairRequest) gate = '<div class="callout" style="align-items:center">' + ICON.info +
+        '<div class="grow"><b>The Figma plugin wants to connect.</b> Allow it to work on your decks? (Only the first time.)</div>' +
+        '<button class="btn secondary" data-a="plugin.allow" data-p=\'{"allow":false}\'>Don’t allow</button><button class="btn" data-a="plugin.allow">Allow</button></div>' + gate;
       return '<div class="page"><h1>Optimising “' + deckName + '”</h1><p class="lede">' + (A.status === 'waiting' ? 'One question, then it carries on by itself.' : esc(act.title || 'Working…') + (act.detail ? ' · ' + esc(act.detail) : '')) + '</p>' +
         gate + '<div class="card">' + phaseList(A) + (act.progress != null && A.status === 'running' ? '<div class="progress" style="margin-top:14px"><i style="width:' + Math.round(act.progress * 100) + '%"></i></div>' : '') +
         '<div class="actions" style="margin-top:14px"><span class="small muted">Keep the plugin open in Figma while this runs.</span><span class="spacer"></span>' +
@@ -239,22 +245,21 @@
     var d = S.deck || {}, pl = S.connections.plugin;
     var card = '';
     if (d.key) {
-      var match = d.pluginMatches === false ? '<div class="callout warn">' + ICON.info + '<div>The plugin is running in <b>' + esc((pl.file || {}).name) +
-        '</b>, not this deck. Open this deck in Figma and run the plugin there.</div></div>' : '';
+      var match = '';
       card = match + '<div class="card"><div class="card-row">' +
         (d.thumbnail ? '<img src="' + esc(d.thumbnail) + '" alt="" style="width:160px;height:90px;object-fit:cover;border-radius:8px;background:var(--card-2)">' :
           '<div class="icon-badge figma" style="width:90px;height:56px">' + ICON.figma + '</div>') +
         '<div class="grow"><h2>' + esc(d.name || 'Figma deck') + '</h2><div class="muted small mono">' + esc(d.key) + '</div>' +
         (d.warning ? '<div class="small" style="color:var(--orange);margin-top:6px">' + esc(d.warning) + '</div>' : '') +
-        '<div style="margin-top:8px">' + (pl.connected ? (d.pluginMatches !== false ? '<span class="chip ok">Plugin is running in this deck</span>' : '<span class="chip warn">Different deck open</span>')
-          : '<span class="chip warn">Run the plugin in this deck</span>') + '</div></div></div></div>';
+        '<div style="margin-top:8px">' + (pl.connected && d.pluginMatches !== false ? '<span class="chip ok">' + ICON.check + ' Open in Figma</span>'
+          : '<span class="chip info">The app opens it in Figma for you</span>') + '</div></div></div></div>';
     } else if (pl.connected && pl.file) {
-      card = '<div class="callout">' + ICON.info + '<div>The plugin is open in <b>' + esc(pl.file.name) + '</b>. Paste its link above, or just continue to use it.</div></div>';
+      card = '<div class="callout">' + ICON.info + '<div><b>' + esc(pl.file.name) + '</b> is open in Figma. Continue to use it, or paste another deck’s link above.</div></div>';
     }
-    return '<div class="page"><h1>Choose a deck</h1><p class="lede">Paste the link to a Figma Slides deck. In Figma: <b>Share › Copy link</b>.</p>' +
+    return '<div class="page"><h1>Choose a deck</h1><p class="lede">Paste the link to any Figma Slides deck (in Figma: <b>Share › Copy link</b>). You don’t need to open it: the app opens it in Figma and starts the plugin when you optimise.</p>' +
       '<div class="card"><div class="input-row"><input class="input" id="deckUrl" placeholder="https://www.figma.com/slides/…" value="' + esc(d.url || '') +
       '" spellcheck="false"><button class="btn" id="deckGo">Open</button></div></div>' + '<div id="deckCard">' + card + '</div>' +
-      '<div class="actions"><span class="spacer"></span><button class="btn large" data-next' + (pl.connected ? '' : ' disabled') + '>Continue</button></div></div>';
+      '<div class="actions"><span class="spacer"></span><button class="btn large" data-go="optimise"' + (d.key || pl.connected ? '' : ' disabled') + '>Continue to Optimise</button></div></div>';
   };
 
   V.review = function () {

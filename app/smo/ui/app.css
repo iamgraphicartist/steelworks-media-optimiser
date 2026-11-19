@@ -337,3 +337,6 @@ details.advanced > summary::-webkit-details-marker { display: none; }
 .arrowbig { font-size: 26px; color: var(--fg-3); padding-bottom: 6px; }
 @media (max-width: 1100px) { .what-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 860px) { .what-grid { grid-template-columns: 1fr 1fr; } }
+
+.steps-head { list-style: none; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--fg-3); padding: 14px 10px 4px; }

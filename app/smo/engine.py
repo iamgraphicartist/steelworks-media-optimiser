@@ -33,7 +33,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.6"
+VERSION = "1.0.7"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 
@@ -254,6 +254,8 @@ class Engine:
     # ------------------------------------------------------------- plugin RPC
     def plugin_connected(self, send, info: Optional[dict]) -> None:
         self.plugin_send = send
+        info = dict(info or {})
+        info["_at"] = time.time()
         self.state["connections"]["plugin"] = {"connected": True, "file": info}
         self._check_deck_match()
         self.activity("Plugin connected", f"Working in “{(info or {}).get('name', 'Figma')}”.")
@@ -490,7 +492,8 @@ class Engine:
         key = parse_file_key(p.get("url", ""))
         if not key:
             raise ValueError("That doesn't look like a Figma link. Copy it from Share → Copy link.")
-        deck = {"url": p["url"].strip(), "key": key, "name": None}
+        m = re.search(r"/[A-Za-z0-9]{10,}/([^/?#]+)", p["url"])
+        deck = {"url": p["url"].strip(), "key": key, "name": (m.group(1).replace("-", " ") if m else None)}
         tok = self.figma_auth.access_token()
         if tok:
             try:
@@ -1076,7 +1079,9 @@ class Engine:
         return {"reverted": n}
 
     # ------------------------------------------------------- one-click optimise
-    AUTO_PHASES = [("scan", "Read the deck"), ("cleanup", "Remove hidden & covered media"),
+    POLL = 1
+    OPEN_WAIT, RETRY_WAIT = 7, 15          # seconds: Figma loading a deck, then between plugin-start attempts
+    AUTO_PHASES = [("open", "Open the deck in Figma"), ("scan", "Read the deck"), ("cleanup", "Remove hidden & covered media"),
                    ("images", "Optimise images"), ("videos", "Compress videos & GIFs"),
                    ("layout", "Tidy spacing & alignment"), ("report", "Save the report")]
 
@@ -1100,8 +1105,61 @@ class Engine:
         self.changed()
 
     async def a_auto_run(self, p):
-        """Everything, in the right order, with one pause before anything is deleted."""
-        return await self._exclusive("optimising the deck", self._auto())
+        """Everything, in the right order, with one pause before anything is deleted.
+        p.url: a Figma share link; the app opens it and starts the plugin itself."""
+        return await self._exclusive("optimising the deck", self._auto(p.get("url") or ""))
+
+    @staticmethod
+    def _norm_name(s: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+    def _deck_matches(self, info: dict, key: Optional[str], slug: str, since: float) -> bool:
+        if not info:
+            return False
+        if key and info.get("fileKey"):
+            return info["fileKey"] == key
+        if slug and info.get("name"):
+            return self._norm_name(info["name"]) == self._norm_name(slug)
+        return info.get("_at", 0) >= since          # no name in the link: the first deck to connect after opening it
+
+    async def _open_deck(self, url: str) -> bool:
+        """Make sure the plugin is running in the deck at `url`, opening it and starting the plugin if needed."""
+        key = parse_file_key(url)
+        m = re.search(r"/[A-Za-z0-9]{10,}/([^/?#]+)", url)
+        slug = (m.group(1) if m else "").replace("-", " ")
+        plug = self.state["connections"]["plugin"]
+        if plug.get("connected") and self._deck_matches(plug.get("file") or {}, key, slug, 0):
+            self._auto_set("open", "done", "Already open")
+            return True
+        self.state["deck"] = {"url": url, "key": key, "name": slug or None}
+        if self.demo:
+            if plug.get("connected"):
+                self._auto_set("open", "done", "Demo: using the open sample deck")
+                return True
+            raise RuntimeError("Open the sample deck in the plugin harness first.")
+        since = time.time()
+        self._auto_set("open", "running", "Opening the deck in Figma…")
+        if not await self.loop.run_in_executor(self.io_pool, figma_desktop.open_deck, url):
+            self._auto_set("open", "waiting", "Open this deck in Figma and run Plugins › Development › Steelworks Media Optimiser.")
+        else:
+            await asyncio.sleep(self.OPEN_WAIT)       # let Figma load the file
+        attempts, deadline = 0, time.time() + 300
+        while time.time() < deadline and not self._auto_stop:
+            plug = self.state["connections"]["plugin"]
+            if plug.get("connected") and self._deck_matches(plug.get("file") or {}, key, slug, since):
+                self._auto_set("open", "done", f"“{(plug.get('file') or {}).get('name', 'Deck')}” is open")
+                return True
+            if attempts < 3 and time.time() - since > self.OPEN_WAIT + attempts * self.RETRY_WAIT:
+                attempts += 1
+                self._auto_set("open", "running", "Starting the plugin in Figma…")
+                ok, msg = await self.loop.run_in_executor(self.io_pool, figma_desktop.start_plugin)
+                if not ok and msg:
+                    self._auto_set("open", "waiting", msg)
+            elif attempts >= 3:
+                self._auto_set("open", "waiting", "Almost there: in Figma, choose Plugins › Development › Steelworks Media Optimiser "
+                                                  "(and click Connect if it asks).")
+            await asyncio.sleep(self.POLL)
+        raise RuntimeError("The deck didn't connect. Open it in Figma, run the plugin, then try again.")
 
     async def a_auto_continue(self, p):
         fut = getattr(self, "_auto_gate", None)
@@ -1121,7 +1179,7 @@ class Engine:
             self.state["auto"] = {"status": "idle"}
             self.changed()
 
-    async def _auto(self):
+    async def _auto(self, url: str = ""):
         self._auto_stop = False
         A = self.state["auto"] = {"status": "running", "phase": "scan", "started": time.time(),
                                   "phases": [{"id": i, "label": l, "status": "pending", "detail": ""} for i, l in self.AUTO_PHASES]}
@@ -1138,6 +1196,23 @@ class Engine:
             except Exception as e:
                 self._auto_set(pid, "error", str(e)[:200])
                 return None
+
+        # 0. Open the deck (and start the plugin) when a link was given
+        if url:
+            try:
+                await self._open_deck(url)
+            except Exception as e:
+                self._auto_set("open", "error", str(e)[:200])
+                A["status"] = "error"
+                self.changed()
+                return A
+        else:
+            if not self.state["connections"]["plugin"].get("connected"):
+                self._auto_set("open", "error", "Paste the deck’s link, or open it in Figma and run the plugin.")
+                A["status"] = "error"
+                self.changed()
+                return A
+            self._auto_set("open", "done", "Using the deck open in Figma")
 
         # 1. Read
         r = await step("scan", self._scan)

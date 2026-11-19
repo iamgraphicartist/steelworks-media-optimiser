@@ -75,6 +75,7 @@ class TestAuto(unittest.IsolatedAsyncioTestCase):
         e = FakeEngine(config.Config(os.path.join(TMP, "cfg.json")), SecureStore(os.path.join(TMP, "s.bin")), 47897, **kw)
         e.attach(asyncio.get_running_loop())
         e.ffmpeg = e.ffprobe = "ffmpeg"
+        e.state["connections"]["plugin"] = {"connected": True, "file": {"name": "Deck", "_at": 1}}
         return e
 
     async def wait_for(self, e, status):
@@ -94,7 +95,7 @@ class TestAuto(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(e.calls, ["scan", "cleanup", "images", "videos", "spacing", "align_scan", "align", "report"])
         self.assertEqual(e.state["auto"]["status"], "done")
         self.assertEqual({p["id"]: p["status"] for p in e.state["auto"]["phases"]},
-                         {"scan": "done", "cleanup": "done", "images": "done", "videos": "done", "layout": "done", "report": "done"})
+                         {"open": "done", "scan": "done", "cleanup": "done", "images": "done", "videos": "done", "layout": "done", "report": "done"})
         videos = next(p for p in e.state["auto"]["phases"] if p["id"] == "videos")
         self.assertIn("ready to drag in", videos["detail"])
 
@@ -115,7 +116,7 @@ class TestAuto(unittest.IsolatedAsyncioTestCase):
 
     async def test_videos_placed_automatically_when_figma_allows(self):
         e = await self.make(cleanup_items=0)
-        e.state["connections"]["plugin"] = {"connected": True, "file": {"canCreateVideo": True}}
+        e.state["connections"]["plugin"] = {"connected": True, "file": {"name": "Deck", "canCreateVideo": True}}
         await asyncio.wait_for(e.a_auto_run({}), 5)
         self.assertIn("place", e.calls)
 
@@ -143,3 +144,62 @@ class TestAuto(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOpenDeck(unittest.IsolatedAsyncioTestCase):
+    """Pick a deck by link: the app opens it in Figma, starts the plugin, waits for that deck."""
+
+    async def asyncSetUp(self):
+        from smo import figma_desktop
+        self.fd = figma_desktop
+        self._orig = (figma_desktop.open_deck, figma_desktop.start_plugin)
+        self.e = FakeEngine(config.Config(os.path.join(TMP, "cfg2.json")), SecureStore(os.path.join(TMP, "s2.bin")), 47896,
+                            cleanup_items=0)
+        self.e.attach(asyncio.get_running_loop())
+        self.e.ffmpeg = self.e.ffprobe = "ffmpeg"
+        self.e.OPEN_WAIT, self.e.RETRY_WAIT, self.e.POLL = 0.01, 0.05, 0.01
+        self.e.plugin_send = None
+        self.events = []
+
+    async def asyncTearDown(self):
+        self.fd.open_deck, self.fd.start_plugin = self._orig
+
+    async def test_opens_starts_plugin_and_waits_for_the_right_deck(self):
+        loop = asyncio.get_running_loop()
+
+        def open_deck(url):
+            self.events.append(("open", url))
+            return True
+
+        def start_plugin(name="x"):
+            self.events.append(("start",))
+            # Figma connects the plugin a moment later - first an unrelated deck, then the right one.
+            loop.call_soon_threadsafe(self.e.plugin_connected, None, {"name": "Other deck"})
+            loop.call_soon_threadsafe(lambda: loop.call_later(0.05, self.e.plugin_connected, None, {"name": "Spring Pitch Deck"}))
+            return True, ""
+        self.fd.open_deck, self.fd.start_plugin = open_deck, start_plugin
+        url = "https://www.figma.com/slides/AbCdEf1234567890XyZw12/Spring-Pitch-Deck?node-id=1-2"
+        await asyncio.wait_for(self.e.a_auto_run({"url": url}), 10)
+        self.assertEqual(self.events[0], ("open", url))
+        self.assertIn(("start",), self.events)
+        ph = {p["id"]: p for p in self.e.state["auto"]["phases"]}
+        self.assertEqual(ph["open"]["status"], "done")
+        self.assertIn("Spring Pitch Deck", ph["open"]["detail"])
+        self.assertEqual(self.e.calls[0], "scan", "optimising starts only once the right deck is connected")
+
+    async def test_already_open_deck_is_used_straight_away(self):
+        self.fd.open_deck = lambda url: self.fail("should not reopen")
+        self.e.state["connections"]["plugin"] = {"connected": True, "file": {"name": "Spring Pitch Deck", "_at": 1}}
+        await asyncio.wait_for(self.e.a_auto_run({"url": "https://www.figma.com/slides/AbCdEf1234567890XyZw12/Spring-Pitch-Deck"}), 5)
+        self.assertEqual(next(p for p in self.e.state["auto"]["phases"] if p["id"] == "open")["detail"], "Already open")
+
+    async def test_file_key_wins_over_name(self):
+        info = {"fileKey": "AbCdEf1234567890XyZw12", "name": "Renamed deck"}
+        self.assertTrue(self.e._deck_matches(info, "AbCdEf1234567890XyZw12", "Spring Pitch Deck", 0))
+        self.assertFalse(self.e._deck_matches({"fileKey": "zzzzzzzzzzzzzzzz", "name": "Spring Pitch Deck"},
+                                              "AbCdEf1234567890XyZw12", "Spring Pitch Deck", 0))
+
+    async def test_no_link_and_no_plugin_explains_what_to_do(self):
+        await asyncio.wait_for(self.e.a_auto_run({}), 5)
+        self.assertEqual(self.e.state["auto"]["status"], "error")
+        self.assertIn("link", next(p for p in self.e.state["auto"]["phases"] if p["id"] == "open")["detail"])

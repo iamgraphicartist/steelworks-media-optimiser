@@ -133,3 +133,85 @@ def launch_figma() -> None:
             subprocess.Popen(["open", "-a", "Figma"])
     except OSError:
         pass
+
+
+# ------------------------------------------------- open a deck, start the plugin
+def desktop_link(url: str) -> Optional[str]:
+    """https://www.figma.com/slides/KEY/Name -> figma://slides/KEY/Name (opens in the desktop app)."""
+    import re
+    m = re.search(r"figma\.com/((?:file|design|slides|deck|proto|board)/[A-Za-z0-9]{10,}[^?#\s]*)", url or "")
+    return f"figma://{m.group(1)}" if m else None
+
+
+def open_deck(url: str) -> bool:
+    """Open a share link in the Figma desktop app. Returns False if Figma desktop isn't there."""
+    link = desktop_link(url)
+    if not link or not settings_path():
+        return False
+    try:
+        if sys.platform == "win32":
+            os.startfile(link)  # type: ignore[attr-defined]   # handled by Figma's figma:// protocol
+        elif sys.platform == "darwin":
+            subprocess.run(["open", link], check=True)
+        else:
+            return False
+        return True
+    except OSError:
+        return False
+
+
+_PS_START = r"""
+$ErrorActionPreference = 'Stop'
+$p = Get-Process -Name Figma -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+if (-not $p) { exit 2 }
+$w = New-Object -ComObject WScript.Shell
+if (-not $w.AppActivate($p.Id)) { exit 3 }
+Start-Sleep -Milliseconds 400
+$w.SendKeys('{ESC}')
+Start-Sleep -Milliseconds 200
+$w.SendKeys('^/')
+Start-Sleep -Milliseconds 700
+$w.SendKeys('__NAME__')
+Start-Sleep -Milliseconds 1500
+$w.SendKeys('{ENTER}')
+"""
+
+_OSA_START = """
+tell application "Figma" to activate
+delay 0.4
+tell application "System Events"
+  key code 53
+  delay 0.2
+  keystroke "/" using command down
+  delay 0.7
+  keystroke "__NAME__"
+  delay 1.5
+  key code 36
+end tell
+"""
+
+
+def start_plugin(name: str = PLUGIN_NAME) -> tuple[bool, str]:
+    """Run the plugin in the front Figma window via Quick actions (Ctrl/Cmd + /),
+    the same as a person typing its name. Returns (ok, message)."""
+    safe = "".join(ch for ch in name if ch.isalnum() or ch == " ")
+    try:
+        if sys.platform == "win32":
+            r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_START.replace("__NAME__", safe)],
+                               capture_output=True, text=True, creationflags=_NO_WINDOW, timeout=30)
+            if r.returncode == 2:
+                return False, "Figma isn't open."
+            if r.returncode != 0:
+                return False, "Couldn't bring Figma to the front."
+            return True, ""
+        if sys.platform == "darwin":
+            r = subprocess.run(["osascript", "-e", _OSA_START.replace("__NAME__", safe)], capture_output=True, text=True, timeout=30)
+            if r.returncode != 0:
+                if "not allowed" in r.stderr or "1002" in r.stderr or "-1743" in r.stderr:
+                    return False, ("Allow Steelworks Media Optimiser to control your computer: System Settings › "
+                                   "Privacy & Security › Accessibility.")
+                return False, "Couldn't start the plugin in Figma."
+            return True, ""
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return False, "Couldn't start the plugin automatically."
