@@ -199,7 +199,76 @@ class TestOpenDeck(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.e._deck_matches({"fileKey": "zzzzzzzzzzzzzzzz", "name": "Spring Pitch Deck"},
                                               "AbCdEf1234567890XyZw12", "Spring Pitch Deck", 0))
 
+    async def test_unprovable_open_deck_is_not_reused(self):
+        """Real-Figma finding: dev plugins get no file key; a key-only link has no name.
+        The deck that happens to be open must not be assumed to be the chosen one."""
+        info = {"name": "Some other deck", "_at": 5}
+        self.assertFalse(self.e._deck_matches(info, "AbCdEf1234567890XyZw12", "", 0))
+        self.assertTrue(self.e._deck_matches(info, "AbCdEf1234567890XyZw12", "", 4), "a connection after opening is trusted")
+        self.assertFalse(self.e._deck_matches(info, "AbCdEf1234567890XyZw12", "", 6), "one from before opening is not")
+
+    async def test_stop_before_the_question_never_asks(self):
+        e = self.e
+        e.state["connections"]["plugin"] = {"connected": True, "file": {"name": "Deck", "_at": 1}}
+        e._cleanup_items = 2
+        orig = e._scan
+
+        async def scan_then_stop():
+            r = await orig()
+            e._auto_stop = True
+            return r
+        e._scan = scan_then_stop
+        await asyncio.wait_for(e.a_auto_run({}), 5)
+        self.assertEqual(next(p for p in e.state["auto"]["phases"] if p["id"] == "cleanup")["status"], "skipped")
+
     async def test_no_link_and_no_plugin_explains_what_to_do(self):
         await asyncio.wait_for(self.e.a_auto_run({}), 5)
         self.assertEqual(self.e.state["auto"]["status"], "error")
         self.assertIn("link", next(p for p in self.e.state["auto"]["phases"] if p["id"] == "open")["detail"])
+
+
+class TestStopIsImmediate(unittest.IsolatedAsyncioTestCase):
+    """Real-Figma finding: Stop must interrupt the running step and nothing may change the deck afterwards."""
+
+    async def asyncSetUp(self):
+        self.e = FakeEngine(config.Config(os.path.join(TMP, "cfg3.json")), SecureStore(os.path.join(TMP, "s3.bin")), 47895,
+                            cleanup_items=0)
+        self.e.attach(asyncio.get_running_loop())
+        self.e.ffmpeg = self.e.ffprobe = "ffmpeg"
+        self.e.state["connections"]["plugin"] = {"connected": True, "file": {"name": "Deck", "_at": 1}}
+
+    async def test_stop_interrupts_a_long_step(self):
+        e = self.e
+
+        async def slow_images():
+            e.calls.append("images-start")
+            await asyncio.sleep(30)
+            e.calls.append("images-end")
+        e._images = slow_images
+        task = asyncio.ensure_future(e.a_auto_run({}))
+        for _ in range(200):
+            if "images-start" in e.calls:
+                break
+            await asyncio.sleep(0.01)
+        t0 = asyncio.get_running_loop().time()
+        await e.a_auto_stop({})
+        await asyncio.wait_for(task, 3)
+        self.assertLess(asyncio.get_running_loop().time() - t0, 2, "stops within moments, not after the step")
+        self.assertNotIn("images-end", e.calls)
+        ph = {p["id"]: p["status"] for p in e.state["auto"]["phases"]}
+        self.assertEqual((ph["images"], ph["videos"], ph["layout"], ph["report"]), ("skipped",) * 4)
+        self.assertNotIn("spacing", e.calls)
+
+    async def test_no_deck_changes_after_stop(self):
+        e = self.e
+        sent = []
+
+        async def send(obj):
+            sent.append(obj.get("method"))
+        e.plugin_send = send
+        e._busy = "optimising the deck"
+        e._auto_stop = True
+        for method in ("swapImages", "removeItems", "applySpacing", "applyMoves", "placeVideo", "saveVersion"):
+            with self.assertRaises(asyncio.CancelledError):
+                await e.plugin_call(method, {})
+        self.assertEqual(sent, [], "nothing that edits the deck was sent")

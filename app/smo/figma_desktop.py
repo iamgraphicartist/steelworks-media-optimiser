@@ -162,30 +162,55 @@ def open_deck(url: str) -> bool:
 
 _PS_START = r"""
 $ErrorActionPreference = 'Stop'
+Add-Type @'
+using System; using System.Runtime.InteropServices; using System.Text;
+public static class W {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+}
+'@
+function FrontIsFigma {
+  $pid0 = 0; [void][W]::GetWindowThreadProcessId([W]::GetForegroundWindow(), [ref]$pid0)
+  try { return ((Get-Process -Id $pid0).ProcessName -eq 'Figma') } catch { return $false }
+}
 $p = Get-Process -Name Figma -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
 if (-not $p) { exit 2 }
+$h = $p.MainWindowHandle
+if ([W]::IsIconic($h)) { [void][W]::ShowWindow($h, 9) }
+# Windows only lets the foreground app hand over focus; a tap of Alt is the standard way to allow it.
+[W]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero); [W]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+[void][W]::SetForegroundWindow($h)
+Start-Sleep -Milliseconds 500
+if (-not (FrontIsFigma)) { exit 3 }
+if ($env:SMO_DRY_RUN -eq '1') { exit 0 }
 $w = New-Object -ComObject WScript.Shell
-if (-not $w.AppActivate($p.Id)) { exit 3 }
-Start-Sleep -Milliseconds 400
-$w.SendKeys('{ESC}')
-Start-Sleep -Milliseconds 200
-$w.SendKeys('^/')
-Start-Sleep -Milliseconds 700
-$w.SendKeys('__NAME__')
-Start-Sleep -Milliseconds 1500
-$w.SendKeys('{ENTER}')
+# Every keystroke is sent only while Figma is the active window.
+foreach ($k in @('{ESC}', '^/', '__NAME__', '{ENTER}')) {
+  if (-not (FrontIsFigma)) { exit 4 }
+  $w.SendKeys($k)
+  if ($k -eq '^/') { Start-Sleep -Milliseconds 700 } elseif ($k -eq '__NAME__') { Start-Sleep -Milliseconds 1500 } else { Start-Sleep -Milliseconds 250 }
+}
+exit 0
 """
 
 _OSA_START = """
 tell application "Figma" to activate
-delay 0.4
+delay 0.5
 tell application "System Events"
+  if name of first application process whose frontmost is true is not "Figma" then error "Figma is not in front" number 4
   key code 53
   delay 0.2
+  if name of first application process whose frontmost is true is not "Figma" then error "Figma is not in front" number 4
   keystroke "/" using command down
   delay 0.7
+  if name of first application process whose frontmost is true is not "Figma" then error "Figma is not in front" number 4
   keystroke "__NAME__"
   delay 1.5
+  if name of first application process whose frontmost is true is not "Figma" then error "Figma is not in front" number 4
   key code 36
 end tell
 """
@@ -201,12 +226,16 @@ def start_plugin(name: str = PLUGIN_NAME) -> tuple[bool, str]:
                                capture_output=True, text=True, creationflags=_NO_WINDOW, timeout=30)
             if r.returncode == 2:
                 return False, "Figma isn't open."
+            if r.returncode in (3, 4):
+                return False, "Figma couldn't be brought to the front, so nothing was typed."
             if r.returncode != 0:
-                return False, "Couldn't bring Figma to the front."
+                return False, "Couldn't start the plugin automatically."
             return True, ""
         if sys.platform == "darwin":
             r = subprocess.run(["osascript", "-e", _OSA_START.replace("__NAME__", safe)], capture_output=True, text=True, timeout=30)
             if r.returncode != 0:
+                if "Figma is not in front" in r.stderr:
+                    return False, "Figma couldn't be brought to the front, so nothing was typed."
                 if "not allowed" in r.stderr or "1002" in r.stderr or "-1743" in r.stderr:
                     return False, ("Allow Steelworks Media Optimiser to control your computer: System Settings › "
                                    "Privacy & Security › Accessibility.")

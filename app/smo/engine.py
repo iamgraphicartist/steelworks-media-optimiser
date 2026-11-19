@@ -33,7 +33,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.7"
+VERSION = "1.0.8"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 
@@ -286,7 +286,11 @@ class Engine:
         else:
             fut.set_result(m.get("result"))
 
+    DECK_CHANGES = {"swapImages", "removeItems", "applySpacing", "applyMoves", "placeVideo", "saveVersion"}
+
     async def plugin_call(self, method: str, params: Optional[dict] = None, on_progress=None, timeout: float = 3600):
+        if method in self.DECK_CHANGES and getattr(self, "_auto_stop", False) and self._busy == "optimising the deck":
+            raise asyncio.CancelledError()          # Stop was pressed: never touch the deck again in this run
         if not self.plugin_send:
             raise PluginGone("Open the deck in Figma and run the Steelworks Media Optimiser plugin first.")
         rid = secrets.token_hex(6)
@@ -856,11 +860,17 @@ class Engine:
                     set_all(group, status="not_found", detail="Sign in to Dropbox (or set a local Dropbox folder) to find the original.")
                     done += 1
                     return
-                set_all(group, status="searching", detail="Looking in Dropbox…")
+                first_index = any(isinstance(src, LocalFolderSource) and src._index is None for src in sources)
+                set_all(group, status="searching", detail="Looking through your Dropbox folder (the first search takes a minute)…"
+                        if first_index else "Looking in Dropbox…")
+                if first_index:
+                    self.activity("Preparing videos", "Looking through your Dropbox folder for the originals. The first search takes a minute.")
                 names = list(dict.fromkeys(v["name"] for v in group))
                 res = None
                 for nm in names:
                     def prog(f, g=group):
+                        if getattr(self, "_auto_stop", False) and self._busy == "optimising the deck":
+                            raise RuntimeError("Stopped")
                         set_all(g, detail=f"Checking a candidate… {round(f * 100)}%")
                     res = await self.loop.run_in_executor(
                         self.io_pool, lambda nm=nm: find_source(
@@ -886,6 +896,7 @@ class Engine:
             def run():
                 fn = vidlib.gif_to_mp4 if first["kind"] == "gif" else vidlib.compress_video
                 return fn(self.ffmpeg, self.ffprobe, src_path, out, preset=preset, display_long=display,
+                          cancelled=lambda: getattr(self, "_auto_stop", False) and self._busy == "optimising the deck",
                           progress=lambda f: set_all(group, progress=f, detail=f"Compressing {round(f * 100)}%"))
             try:
                 set_all(group, detail="Compressing")
@@ -1120,7 +1131,9 @@ class Engine:
             return info["fileKey"] == key
         if slug and info.get("name"):
             return self._norm_name(info["name"]) == self._norm_name(slug)
-        return info.get("_at", 0) >= since          # no name in the link: the first deck to connect after opening it
+        # Can't prove which deck it is (development plugins aren't told the file key, and the
+        # link has no name): only trust a connection that arrived after we opened the deck.
+        return since > 0 and info.get("_at", 0) >= since
 
     async def _open_deck(self, url: str) -> bool:
         """Make sure the plugin is running in the deck at `url`, opening it and starting the plugin if needed."""
@@ -1137,6 +1150,14 @@ class Engine:
                 self._auto_set("open", "done", "Demo: using the open sample deck")
                 return True
             raise RuntimeError("Open the sample deck in the plugin harness first.")
+        if plug.get("connected"):
+            # A plugin is open somewhere but we can't prove it's this deck: close it, so the
+            # connection that follows opening the deck is unambiguous.
+            try:
+                await self.plugin_call("close", {}, timeout=4)
+            except Exception:
+                pass
+            await asyncio.sleep(1)
         since = time.time()
         self._auto_set("open", "running", "Opening the deck in Figma…")
         if not await self.loop.run_in_executor(self.io_pool, figma_desktop.open_deck, url):
@@ -1168,6 +1189,8 @@ class Engine:
 
     async def a_auto_stop(self, p):
         self._auto_stop = True
+        if getattr(self, "_stop_evt", None):
+            self._stop_evt.set()
         fut = getattr(self, "_auto_gate", None)
         if fut and not fut.done():
             fut.set_result(False)
@@ -1181,6 +1204,7 @@ class Engine:
 
     async def _auto(self, url: str = ""):
         self._auto_stop = False
+        self._stop_evt = asyncio.Event()
         A = self.state["auto"] = {"status": "running", "phase": "scan", "started": time.time(),
                                   "phases": [{"id": i, "label": l, "status": "pending", "detail": ""} for i, l in self.AUTO_PHASES]}
         self.changed()
@@ -1190,9 +1214,25 @@ class Engine:
                 self._auto_set(pid, "skipped", "Stopped")
                 return None
             self._auto_set(pid, "running")
+            task = asyncio.ensure_future(coro_fn())
+            stop = asyncio.ensure_future(self._stop_evt.wait())
             try:
-                r = await coro_fn()
-                return r
+                await asyncio.wait({task, stop}, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                stop.cancel()
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except BaseException:
+                    pass
+                self._auto_set(pid, "skipped", "Stopped")
+                return None
+            try:
+                return task.result()
+            except asyncio.CancelledError:
+                self._auto_set(pid, "skipped", "Stopped")
+                return None
             except Exception as e:
                 self._auto_set(pid, "error", str(e)[:200])
                 return None
@@ -1200,10 +1240,16 @@ class Engine:
         # 0. Open the deck (and start the plugin) when a link was given
         if url:
             try:
-                await self._open_deck(url)
+                ok = await step("open", lambda: self._open_deck(url))
+                if ok is None:
+                    raise RuntimeError(next(p for p in A["phases"] if p["id"] == "open")["detail"] or "Stopped")
             except Exception as e:
-                self._auto_set("open", "error", str(e)[:200])
-                A["status"] = "error"
+                if next(p for p in A["phases"] if p["id"] == "open")["status"] != "skipped":
+                    self._auto_set("open", "error", str(e)[:200])
+                for ph in A["phases"]:
+                    if ph["status"] == "pending":
+                        ph.update(status="skipped", detail="Stopped" if self._auto_stop else "")
+                A["status"] = "done" if self._auto_stop else "error"
                 self.changed()
                 return A
         else:
@@ -1217,7 +1263,10 @@ class Engine:
         # 1. Read
         r = await step("scan", self._scan)
         if r is None:
-            A["status"] = "error"
+            for ph in A["phases"]:
+                if ph["status"] == "pending":
+                    ph.update(status="skipped", detail="Stopped" if self._auto_stop else "")
+            A["status"] = "done" if self._auto_stop else "error"
             self.changed()
             return A
         s_ = self.state["scan"]["summary"]
@@ -1225,8 +1274,12 @@ class Engine:
 
         # 2. Clean-up: the one question
         items = [i for i in self.state["cleanup"]["items"] if i["status"] == "pending"]
-        if not items:
+        if self._auto_stop:
+            self._auto_set("cleanup", "skipped", "Stopped")
+        elif not items:
             self._auto_set("cleanup", "done", "Nothing hidden or covered")
+        elif self._auto_stop:
+            self._auto_set("cleanup", "skipped", "Stopped")
         else:
             self._auto_set("cleanup", "waiting", f"{len(items)} layer{'s' if len(items) != 1 else ''} nobody can see")
             A["status"] = "waiting"

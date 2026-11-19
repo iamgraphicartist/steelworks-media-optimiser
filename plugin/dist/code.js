@@ -394,7 +394,7 @@ if (typeof module !== 'undefined') module.exports = SMOCore;
  * document happens here.
  */
 /* global SMOCore, figma, __html__ */
-var PLUGIN_VERSION = '1.0.7';
+var PLUGIN_VERSION = '1.0.8';
 var MEDIA = { IMAGE: true, VIDEO: true };
 
 figma.showUI(__html__, { width: 340, height: 480, themeColors: true, title: 'Steelworks Media Optimiser' });
@@ -831,6 +831,12 @@ var handlers = {
     }
     progress(rpcId, { phase: 'guided', label: 'Waiting for the file to be dragged in' });
     return await guidedPlace(node, origPaint, p);
+  },
+
+  /** The app is switching to another deck: close this plugin window. */
+  close: async function () {
+    setTimeout(function () { figma.closePlugin(); }, 150);
+    return { ok: true };
   },
 
   cancelGuided: async function () { if (guided) guided.finish(null, 'cancelled'); return { ok: true }; }
