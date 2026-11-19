@@ -4,7 +4,7 @@
  * document happens here.
  */
 /* global SMOCore, figma, __html__ */
-var PLUGIN_VERSION = '1.0.1';
+var PLUGIN_VERSION = '1.0.2';
 var MEDIA = { IMAGE: true, VIDEO: true };
 
 figma.showUI(__html__, { width: 340, height: 480, themeColors: true, title: 'Steelworks Media Optimiser' });
@@ -248,8 +248,11 @@ function findGrids(container, slide, slideIndex, out) {
 }
 
 function fileInfo() {
-  return { fileKey: figma.fileKey || null, name: figma.root.name, editorType: figma.editorType,
-    user: figma.currentUser ? figma.currentUser.name : null, pluginVersion: PLUGIN_VERSION,
+  // Only read what needs no extra permission. (figma.currentUser needs the "currentuser"
+  // permission, and figma.fileKey is only given to private plugins, so read it defensively.)
+  var key = null;
+  try { key = figma.fileKey || null; } catch (e) { key = null; }
+  return { fileKey: key, name: figma.root.name, editorType: figma.editorType, pluginVersion: PLUGIN_VERSION,
     canCreateVideo: typeof figma.createVideoAsync === 'function' };
 }
 

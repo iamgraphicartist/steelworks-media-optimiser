@@ -143,7 +143,7 @@ function MockFigma(opts) {
     fileKey: opts.deck.fileKey,
     root: doc,
     get currentPage() { return page; },
-    currentUser: { name: 'Demo user' },
+    get currentUser() { throw new Error('in get_currentUser: "currentuser" permission not specified in manifest.json.'); }, // like real Figma
     showUI: function (html, o) { uiFrame = opts.mountUI(html, o); },
     ui: {
       postMessage: function (m) { if (opts.onUIMessage) opts.onUIMessage(m); uiFrame.contentWindow.postMessage({ pluginMessage: m }, '*'); },

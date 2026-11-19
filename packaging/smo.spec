@@ -5,7 +5,7 @@ import sys
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 NAME = "Steelworks Media Optimiser"
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 datas = [
     (os.path.join(ROOT, "app", "smo", "ui"), os.path.join("smo", "ui")),
