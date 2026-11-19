@@ -114,8 +114,14 @@ def main(argv=None) -> int:
     engine.window = webview.create_window(APP_NAME, url + ("&v=1" if mac else ""), width=1200, height=800, min_size=(980, 660),
                           background_color="#F5F5F7", vibrancy=mac, transparent=False, text_select=False)
     webview.start(private_mode=False, storage_path=os.path.join(os.path.dirname(cfg.path), "webview"))
-    asyncio.run_coroutine_threadsafe(bridge.stop(), loop).result(5)
-    return 0
+    # Closing the window ends the app. Open connections (the Figma plugin keeps one) can
+    # hold a graceful shutdown for a long time, so give it a moment and then just exit.
+    try:
+        asyncio.run_coroutine_threadsafe(bridge.stop(), loop).result(2)
+    except BaseException:
+        pass
+    sys.stdout.flush()
+    os._exit(0)
 
 
 def _fatal(msg: str, headless: bool) -> None:
