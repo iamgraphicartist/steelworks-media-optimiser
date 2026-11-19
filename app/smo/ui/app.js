@@ -82,7 +82,7 @@
     if (!S) return false;
     var c = S.connections;
     switch (id) {
-      case 'connect': return c.plugin.connected && c.figma.signedIn && c.dropbox.signedIn;
+      case 'connect': return c.plugin.connected && (c.dropbox.signedIn || !!c.dropbox.localRoot);
       case 'deck': return !!(S.deck && S.deck.name);
       case 'review': return S.scan.status === 'done';
       case 'images': return S.images.status === 'done';
@@ -120,32 +120,30 @@
   var V = {};
 
   V.connect = function () {
-    var c = S.connections, f = c.figma, d = c.dropbox, pl = c.plugin;
-    function row(icon, cls, title, sub, right) {
-      return '<div class="card"><div class="card-row"><div class="icon-badge ' + cls + '">' + icon + '</div><div class="grow"><h3>' + title +
-        '</h3><div class="muted small">' + sub + '</div></div>' + right + '</div></div>';
+    var c = S.connections, d = c.dropbox, pl = c.plugin, acc = d.account || {};
+    function card(icon, cls, title, body, right, done) {
+      return '<div class="card"><div class="card-row" style="align-items:flex-start"><div class="icon-badge ' + cls + '">' + icon + '</div><div class="grow"><h3>' + title +
+        (done ? ' <span class="chip ok" style="margin-left:6px">' + ICON.check + ' Ready</span>' : '') + '</h3><div class="muted small" style="margin-top:2px">' + body + '</div></div>' + (right || '') + '</div></div>';
     }
-    var fRight = f.demo ? '<span class="chip info">Demo</span>' : f.signedIn ? '<span class="chip ok">Signed in</span><button class="btn plain" data-a="figma.signout">Sign out</button>'
-      : '<button class="btn" data-a="figma.signin"' + (f.configured ? '' : ' disabled') + '>Sign in with Figma</button>';
-    var fSub = f.signedIn ? 'Signed in as ' + esc((f.user && (f.user.handle || f.user.email)) || 'you') + '. Used to find your deck.'
-      : f.configured ? 'Opens Figma in your browser to ask for permission to read your files.' : 'Add the Figma client ID and secret in <a data-open="settings">Settings</a> first.';
-    var acc = d.account || {};
-    var dRight = d.demo ? '<span class="chip info">Demo</span>' : d.signedIn ? '<span class="chip ok">Signed in</span><button class="btn plain" data-a="dropbox.signout">Sign out</button>'
-      : '<button class="btn" data-a="dropbox.signin"' + (d.configured ? '' : ' disabled') + '>Sign in with Dropbox</button>';
-    var dSub = d.signedIn ? esc(acc.name || 'Signed in') + (acc.team ? ' · ' + esc(acc.team) + ' team' : '') + '. Team and shared folders are searched, including files that aren’t synced.'
-      : d.configured ? 'Lets the app find the original videos, even ones that aren’t on this computer.' : 'Add the Dropbox app key in <a data-open="settings">Settings</a> first.' +
-        (d.localRoot ? ' Meanwhile, your local Dropbox folder will be searched.' : '');
-    var code = String(S.pairCode || '').split('').map(function (ch) { return '<span>' + ch + '</span>'; }).join('');
-    var plSub = pl.connected ? 'Connected to <b>' + esc((pl.file || {}).name || 'Figma') + '</b>. Keep the plugin open while you work.'
-      : 'In Figma, open the deck and choose <b>Plugins › Development › Steelworks Media Optimiser</b>. Type this code when the plugin asks:';
-    var plRight = pl.connected ? '<span class="chip ok"><span class="dot ok"></span>Connected</span>' : '<div class="pair-code">' + code + '</div>';
-    return '<div class="page"><h1>Connect</h1><p class="lede">Three quick connections and you’re ready. You only need to do this once on this computer.</p>' +
-      row(ICON.figma, 'figma', 'Figma account', fSub, fRight) +
-      row(ICON.dropbox, 'dropbox', 'Dropbox', dSub, dRight) +
-      row(ICON.plug, 'plugin', 'Figma plugin', plSub, plRight) +
-      row(ICON.film, 'tool', 'Video tools', c.ffmpeg.ok ? 'ffmpeg is ready.' : 'ffmpeg wasn’t found. Images still work; install ffmpeg for videos (see README).',
-        c.ffmpeg.ok ? '<span class="chip ok">Ready</span>' : '<span class="chip warn">Missing</span>') +
-      '<div class="actions"><span class="spacer"></span><button class="btn large" data-next>Continue</button></div></div>';
+    // 1 — Plugin (the only real step)
+    var allow = S.pairRequest ? '<div class="callout" style="margin:12px 0 0;align-items:center">' + ICON.info +
+      '<div class="grow"><b>The Figma plugin wants to connect.</b> Allow it to work on your decks?</div>' +
+      '<button class="btn secondary" data-a="plugin.allow" data-p=\'{"allow":false}\'>Don’t allow</button><button class="btn" data-a="plugin.allow">Allow</button></div>' : '';
+    var plBody = pl.connected ? 'Connected to <b>' + esc((pl.file || {}).name || 'your deck') + '</b>. Keep the plugin open while you work.'
+      : '<ol class="steps-mini"><li><button class="btn mini" data-a="plugin.reveal">Show plugin file</button> In Figma: <b>Plugins › Development › Import plugin from manifest…</b> and pick that file. <span class="muted">(Only the first time.)</span></li>' +
+        '<li>Open your deck and run <b>Plugins › Development › Steelworks Media Optimiser</b>.</li><li>Click <b>Connect</b> in the plugin, then <b>Allow</b> here.</li></ol>' + allow;
+    // 2 — Dropbox: automatic
+    var dBody, dDone, dRight = '';
+    if (d.signedIn) { dDone = true; dBody = 'Signed in' + (acc.name ? ' as ' + esc(acc.name) : '') + (acc.team ? ' · ' + esc(acc.team) : '') + '. Searches every team and shared folder, synced or not.'; if (!d.demo) dRight = '<button class="btn plain" data-a="dropbox.signout">Sign out</button>'; }
+    else if (d.localRoot) { dDone = true; dBody = 'Using your Dropbox folder on this computer. Files that aren’t synced are downloaded automatically when needed.<div class="mono" style="margin-top:4px">' + esc(d.localRootShort || d.localRoot) + '</div>' +
+      (d.configured ? '<div style="margin-top:6px"><a data-a="dropbox.signin">Also search folders you haven’t added (sign in to Dropbox)</a></div>' : ''); }
+    else if (d.configured) { dBody = 'Sign in so the app can find the original videos.'; dRight = '<button class="btn" data-a="dropbox.signin">Sign in with Dropbox</button>'; }
+    else { dBody = 'Dropbox for desktop wasn’t found on this computer. Install it and sign in with your Steelworks account, or choose your Dropbox folder in <a data-open="settings">Settings</a>.'; dRight = '<button class="btn secondary" data-url="https://www.dropbox.com/install">Get Dropbox</button>'; }
+    return '<div class="page"><h1>Connect</h1><p class="lede">' + (pl.connected ? 'You’re all set.' : 'One step and you’re ready. Everything else is set up automatically.') + '</p>' +
+      card(ICON.plug, 'plugin', 'Figma plugin', plBody, '', pl.connected) +
+      card(ICON.dropbox, 'dropbox', 'Dropbox', dBody, dRight, dDone) +
+      card(ICON.film, 'tool', 'Video tools', c.ffmpeg.ok ? 'Built in and ready.' : 'ffmpeg wasn’t found, so images will work but videos won’t. See <a data-open="settings">Settings</a> › ffmpeg ⓘ.', '', c.ffmpeg.ok) +
+      '<div class="actions"><span class="spacer"></span><button class="btn large" data-next' + (pl.connected ? '' : ' disabled') + '>Continue</button></div></div>';
   };
 
   V.deck = function () {
@@ -384,12 +382,13 @@
 
   // ------------------------------------------------------------- events
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-step],[data-a],[data-next],[data-go],[data-focus],[data-reveal],[data-open],[data-toggle],[data-toggle-all],[data-grid],[data-align],[data-align-all]');
+    var t = e.target.closest('[data-step],[data-a],[data-next],[data-go],[data-focus],[data-reveal],[data-open],[data-toggle],[data-toggle-all],[data-grid],[data-align],[data-align-all],[data-url]');
     if (!t) return;
     if (t.dataset.step) return go(t.dataset.step);
     if (t.hasAttribute('data-next')) return nextStep();
     if (t.dataset.go) return go(t.dataset.go);
     if (t.dataset.open === 'settings') return openSettings();
+    if (t.dataset.url) { if (!t.closest('#settings')) act('open_url', { url: t.dataset.url }); return; }
     if (t.dataset.reveal) return act('videos.reveal', { key: t.dataset.reveal });
     if (t.hasAttribute('data-toggle-all')) return act('cleanup.toggle', { all: t.checked });
     if (t.dataset.toggle) return act('cleanup.toggle', { key: t.dataset.toggle });
@@ -419,6 +418,7 @@
       $('s_info').textContent = 'Plugin bridge: localhost:' + s.port + '. Data: ' + s.dataDir + (from.length ? '. Set elsewhere: ' + from.join(', ') : '');
       $('settings').classList.add('on');
       if (typeof expand === 'string' && $(expand)) {
+        var det = $(expand).closest('details'); if (det) det.open = true;
         $(expand).classList.add('on'); document.querySelector('[data-help="' + expand + '"]').classList.add('on');
       } else { $('s_figma_client_id').focus(); }
     });

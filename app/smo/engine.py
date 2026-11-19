@@ -101,13 +101,14 @@ class Engine:
         self._rpc: dict[str, tuple[asyncio.Future, Optional[Callable]]] = {}
         self.pair_code = store.get("pair_code") or self._new_code()
         self.plugin_tokens: list = store.get("plugin_tokens") or []
+        self._pair_waiters: list = []
         self.inv: Optional[dict] = None
         self.undo: list[dict] = []
         self.version_saved = False
         self._dirty = False
         self._busy: Optional[str] = None
         self.state: dict = {
-            "version": VERSION, "demo": bool(demo), "pairCode": self.pair_code,
+            "version": VERSION, "demo": bool(demo), "pairCode": self.pair_code, "pairRequest": False,
             "connections": {}, "deck": {}, "activity": {"title": "Ready", "detail": "", "progress": None},
             "scan": {"status": "idle"}, "images": {"status": "idle", "items": []},
             "cleanup": {"status": "idle", "items": []}, "videos": {"status": "idle", "items": []},
@@ -141,6 +142,11 @@ class Engine:
     def attach(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
         self._loop_thread = threading_ident()
+        self._local_source = None
+        root = None if self.demo else (self.cfg.get("local_dropbox_root") or dropbox_desktop_root())
+        if root and os.path.isdir(root):
+            self._local_source = LocalFolderSource(root, self.hash_cache, "Dropbox")
+            loop.run_in_executor(self.io_pool, self._local_source.search, "warm-up")  # builds the index under its lock
 
     def activity(self, title: str, detail: str = "", progress: Optional[float] = None) -> None:
         self.state["activity"] = {"title": title, "detail": detail, "progress": progress}
@@ -159,15 +165,17 @@ class Engine:
             "figma": {"configured": self.figma_auth.configured(), "signedIn": bool(f_tok),
                       "user": (f_tok or {}).get("user")},
             "dropbox": {"configured": self.dropbox_auth.configured(), "signedIn": bool(d_tok),
-                        "account": (d_tok or {}).get("account"), "localRoot": local_root},
+                        "account": (d_tok or {}).get("account"), "localRoot": local_root,
+                        "localRootShort": _short(local_root)},
             "plugin": self.state.get("connections", {}).get("plugin", {"connected": False}),
             "ffmpeg": {"ok": bool(self.ffmpeg and self.ffprobe), "path": self.ffmpeg},
         }
         if self.demo:
             self.state["connections"]["figma"].update({"signedIn": True, "user": {"handle": "Demo user"}, "demo": True})
-            self.state["connections"]["dropbox"].update({"signedIn": True, "demo": True,
+            self.state["connections"]["dropbox"].update({"signedIn": False, "demo": True,
                                                          "account": {"name": "Sample folder", "team": "Demo"},
-                                                         "localRoot": self.demo.get("dropbox")})
+                                                         "localRoot": self.demo.get("dropbox"),
+                                                         "localRootShort": "samples/dropbox (demo)"})
         self.changed()
 
     # ------------------------------------------------------------- plugin RPC
@@ -226,6 +234,36 @@ class Engine:
             return tok
         return None
 
+    async def request_pairing(self, timeout: float = 180) -> Optional[str]:
+        """One-click pairing: the plugin asks, the person clicks Allow in the app."""
+        fut = self.loop.create_future()
+        self._pair_waiters.append(fut)
+        self.state["pairRequest"] = True
+        self.changed()
+        try:
+            ok = await asyncio.wait_for(asyncio.shield(fut), timeout)
+        except asyncio.TimeoutError:
+            ok = False
+        finally:
+            if fut in self._pair_waiters:
+                self._pair_waiters.remove(fut)
+            self.state["pairRequest"] = bool(self._pair_waiters)
+            self.changed()
+        if not ok:
+            return None
+        tok = secrets.token_urlsafe(32)
+        self.plugin_tokens = (self.plugin_tokens + [tok])[-10:]
+        self.store.set("plugin_tokens", self.plugin_tokens)
+        return tok
+
+    async def a_plugin_allow(self, p):
+        for f in list(self._pair_waiters):
+            if not f.done():
+                f.set_result(bool(p.get("allow", True)))
+        self._pair_waiters.clear()
+        self.state["pairRequest"] = False
+        self.changed()
+
     def valid_token(self, token: Optional[str]) -> bool:
         return bool(token) and token in self.plugin_tokens
 
@@ -254,14 +292,14 @@ class Engine:
         out = {k: self.cfg.get(k) or "" for k in keys}
         out["figma_client_secret_set"] = bool(self.figma_auth.client_secret())
         out["sources"] = {k: self.cfg.source_of(k) for k in keys}
-        out["dataDir"] = _short(data_dir())
+        out["dataDir"] = "the app’s data folder" if self.demo else _short(data_dir())
         out["port"] = self.port
         out["redirects"] = {"figma": self.figma_auth.redirect_uri, "dropbox": self.dropbox_auth.redirect_uri}
         out["detected"] = {"local_dropbox_root": "samples/dropbox (demo)" if self.demo else _short(dropbox_desktop_root()),
                            "ffmpeg": _short(vidlib.find_tool("ffmpeg"))}
         return out
 
-    ALLOWED_URLS = ("https://www.figma.com/developers", "https://www.dropbox.com/developers", "https://brew.sh",
+    ALLOWED_URLS = ("https://www.figma.com/developers", "https://www.dropbox.com/developers", "https://www.dropbox.com/install", "https://brew.sh",
                     "https://www.gyan.dev/ffmpeg", "https://github.com/")
 
     async def a_open_url(self, p):
@@ -323,6 +361,18 @@ class Engine:
         self.state["pairCode"] = self.pair_code
         self.changed()
         return self.pair_code
+
+    def plugin_manifest(self) -> str:
+        if getattr(sys, "frozen", False):
+            return os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(sys.executable)), "plugin", "manifest.json")
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "plugin", "manifest.json"))
+
+    async def a_plugin_reveal(self, p):
+        path = self.plugin_manifest()
+        if not self.demo:
+            reveal(path)
+        await self.a_copy({"text": path})
+        return path
 
     async def a_plugin_forget(self, p):
         self.plugin_tokens = []
@@ -670,7 +720,11 @@ class Engine:
         if self.dropbox_auth.token():
             out.append(DropboxSource(self.dropbox_auth.access_token, self.hash_cache, local_root=local_root))
         elif local_root and os.path.isdir(local_root):
-            out.append(LocalFolderSource(local_root, self.hash_cache, "Dropbox folder"))
+            # No sign-in needed: the Dropbox desktop app's folder. Files that aren't synced
+            # ("online-only") are downloaded by Dropbox automatically when they're read.
+            if not (self._local_source and self._local_source.root == local_root):
+                self._local_source = LocalFolderSource(local_root, self.hash_cache, "Dropbox")
+            out.append(self._local_source)
         return out
 
     async def a_videos_prepare(self, p):

@@ -286,3 +286,11 @@ td:last-child .chip { white-space: normal; text-align: left; }
 .copyrow code { padding: 4px 8px; }
 .copyrow .btn.mini { margin: 0; }
 .input-row .btn { height: 36px; }
+.steps-mini { margin: 6px 0 0; padding-left: 18px; }
+.steps-mini li { margin-bottom: 6px; }
+.steps-mini .btn.mini { margin: 0 6px 0 0; vertical-align: middle; }
+details.advanced { margin-top: 6px; border-top: 1px solid var(--line); padding-top: 12px; }
+details.advanced > summary { cursor: pointer; font-weight: 600; font-size: 13px; list-style: none; display: flex; align-items: center; gap: 6px; }
+details.advanced > summary::before { content: "›"; display: inline-block; transition: transform 0.2s var(--ease); color: var(--fg-2); font-size: 16px; }
+details.advanced[open] > summary::before { transform: rotate(90deg); }
+details.advanced > summary::-webkit-details-marker { display: none; }

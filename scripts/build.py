@@ -138,6 +138,14 @@ def main():
         vendor_ffmpeg()
     else:
         shutil.rmtree(os.path.join(ROOT, "vendor", "ffmpeg"), ignore_errors=True)
+    studio = {k: os.environ[e] for k, e in (("dropbox_app_key", "SMO_DROPBOX_APP_KEY"),
+                                            ("figma_client_id", "SMO_FIGMA_CLIENT_ID")) if os.environ.get(e)}
+    if studio:
+        step("Studio settings")
+        import json
+        with open(os.path.join(ROOT, "steelworks.config.json"), "w", encoding="utf-8") as f:
+            json.dump(studio, f, indent=2)
+        print("Pre-configured:", ", ".join(studio))      # values are public IDs, not secrets
     step("Packaging the app (PyInstaller)")
     run([sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--distpath", os.path.join(WORK, "dist"),
          "--workpath", os.path.join(WORK, "work"), os.path.join("packaging", "smo.spec")])

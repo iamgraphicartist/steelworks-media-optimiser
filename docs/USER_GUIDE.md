@@ -6,33 +6,32 @@ Use this when a Figma Slides deck is slow to open or present. One deck takes abo
 
 ---
 
-## 0 · First time only: add the keys
+## Install (2 minutes, once)
 
-Someone at Steelworks sets up a Figma app and a Dropbox app once for the whole studio (see the README). If you have the values, open **Settings** (bottom of the sidebar) and paste them in. If you're the one setting them up, click the **ⓘ** next to each field: it explains exactly where to click, opens the right page, and has a **Copy** button for the address to paste in. Use the address your app shows; it matches your app's port.
+1. Download the app from the **[latest release](../../../releases/latest)**: the **Windows** `.exe`, or the **Mac** `.dmg` (arm64 for M1–M4 Macs, x86_64 for older Intel Macs). Open it and click through. On a Mac, drag the app into **Applications**. The first time, right-click it and choose **Open**.
+2. Make sure **Dropbox for desktop** is installed and signed in with your Steelworks account. That's how the app finds the original videos; there's nothing else to set up.
 
-| Figma | Dropbox (dark mode) |
-|---|---|
-| ![Figma help](images/12-settings-figma-help.png) | ![Dropbox help](images/13-settings-dropbox-help.png) |
-
-The two optional fields (your Dropbox folder and ffmpeg) are usually found automatically and show *Found automatically* in grey. The ⓘ explains what to do if they aren't:
-
-![ffmpeg help](images/14-settings-ffmpeg-help.png)
-
-## 1 · Connect
+## 1 · Connect: the only setup step
 
 ![Connect](images/01-connect.png)
 
-Open **Steelworks Media Optimiser**.
+The app finds your Dropbox folder and video tools by itself. You only connect the Figma plugin:
 
-* **Figma account:** *Sign in with Figma* opens your browser. Allow access and come back.
-* **Dropbox:** *Sign in with Dropbox* and use your Steelworks account. It can then find original videos even if they're not synced to your computer.
-* **Figma plugin:** in Figma, open the deck and run **Plugins › Development › Steelworks Media Optimiser**. Type the six-digit code shown here. You only do this once.
+1. Click **Show plugin file**. In the Figma desktop app, choose **Plugins › Development › Import plugin from manifest…** and pick the highlighted file. *(First time only.)*
+2. Open your deck and run **Plugins › Development › Steelworks Media Optimiser**.
+3. Click **Connect** in the plugin, then **Allow** in the app.
 
-| The plugin asks for the code | …and then stays connected |
+| In the plugin: click Connect | In the app: click Allow |
 |---|---|
-| ![Pair](images/plugin-pair.png) | ![Connected](images/plugin-connected.png) |
+| ![Plugin](images/plugin-pair.png) | ![Allow](images/01b-connect-allow.png) |
 
-Keep the plugin panel open while you work. It's the app's hands inside Figma.
+That's it. The plugin stays connected on this computer from now on. Keep its panel open while you work: it's the app's hands inside Figma.
+
+![Connected](images/plugin-connected.png)
+
+> **Settings** (bottom of the sidebar) is for unusual cases only, for example a Dropbox folder that wasn't found. Every field has an **ⓘ** that explains it.
+>
+> ![Settings](images/12-settings.png)
 
 ## 2 · Choose deck
 

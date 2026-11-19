@@ -67,11 +67,14 @@
   <section class="screen" id="pair">
     <div class="mark">SW</div>
     <h1>Connect to the app</h1>
-    <p>Open <b>Steelworks Media Optimiser</b> on this computer and type the six-digit code it shows.</p>
-    <div class="code" id="code"></div>
-    <button id="pairBtn" disabled>Connect</button>
+    <p>Make sure <b>Steelworks Media Optimiser</b> is open on this computer, then click Connect.</p>
+    <button id="askBtn" style="width:100%;padding:11px">Connect</button>
+    <div class="card status" id="askWait" style="display:none;margin-top:14px"><span class="dot wait"></span><div><div class="title">Click <b>Allow</b> in the app</div>
+      <div class="sub">It just popped up in Steelworks Media Optimiser.</div></div></div>
     <p class="sub" id="pairMsg" style="margin-top:12px"></p>
-    <div class="foot">You only need to do this once on this computer.</div>
+    <div id="codeBox" style="display:none"><p class="sub">Or type the six-digit code shown in the app:</p>
+      <div class="code" id="code"></div><button id="pairBtn" class="secondary" disabled>Connect with code</button></div>
+    <div class="foot">You only need to do this once on this computer. <a id="useCode">Use a code instead</a></div>
   </section>
 
   <!-- Searching -->
@@ -153,23 +156,26 @@ function activity(title, detail, frac) {
 })();
 function codeValue() { return Array.prototype.map.call($('code').children, function (i) { return i.value; }).join(''); }
 $('pairBtn').onclick = function () { $('pairMsg').textContent = 'Connecting…'; connect(null, codeValue()); };
+$('askBtn').onclick = function () { $('pairMsg').textContent = ''; connect(null, null, true); };
+$('useCode').onclick = function () { $('codeBox').style.display = 'block'; this.style.display = 'none'; };
 $('repair').onclick = function () { token = null; post({ type: 'storage-set', key: 'smo-token', value: null }); if (ws) ws.close(); show('pair'); };
 
 // ---- WebSocket bridge
-function connect(tok, code) {
+function connect(tok, code, ask) {
   if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} }
-  var url = 'ws://localhost:' + PORT + '/plugin' + (tok ? '?token=' + encodeURIComponent(tok) : '?pair=' + encodeURIComponent(code));
+  var url = 'ws://localhost:' + PORT + '/plugin' + (tok ? '?token=' + encodeURIComponent(tok) : ask ? '?request=1' : '?pair=' + encodeURIComponent(code));
   try { ws = new WebSocket(url); } catch (e) { return scheduleRetry(); }
   ws.onopen = function () { retry = 0; post({ type: 'rpc', id: '_hello', method: 'hello' }); };
   ws.onmessage = function (ev) {
     var m = JSON.parse(ev.data);
-    if (m.type === 'paired') {
+    if (m.type === 'waiting') { $('askWait').style.display = 'flex'; $('askBtn').disabled = true; return; }
+    if (m.type === 'paired') { $('askWait').style.display = 'none'; $('askBtn').disabled = false;
       token = m.token; paired = true;
       post({ type: 'storage-set', key: 'smo-token', value: token });
       show('main'); log('Paired with the app');
       return;
     }
-    if (m.type === 'denied') { $('pairMsg').textContent = m.message || 'That code didn’t match. Check the app and try again.'; token = null; show('pair'); return; }
+    if (m.type === 'denied') { $('askWait').style.display = 'none'; $('askBtn').disabled = false; $('pairMsg').textContent = m.message || 'That code didn’t match. Check the app and try again.'; token = null; show('pair'); return; }
     if (m.type === 'status') { activity(m.title, m.detail, m.progress); if (m.log) log(m.log); return; }
     if (m.method) { // command from the app
       if (m.method !== 'hello') activity(LABELS[m.method] || 'Working…', '', 0);
@@ -181,7 +187,7 @@ function connect(tok, code) {
       $('pairMsg').textContent = 'The app asked to pair again.'; return; }
     if (token) { show('search'); scheduleRetry(); }
   };
-  ws.onerror = function () { if (!token) $('pairMsg').textContent = 'Couldn’t reach the app. Is it open?'; };
+  ws.onerror = function () { if (!token) { $('askWait').style.display = 'none'; $('askBtn').disabled = false; $('pairMsg').textContent = 'Couldn’t reach the app. Open Steelworks Media Optimiser first.'; } };
 }
 var LABELS = { inventory: 'Reading the deck', swapImages: 'Swapping images', removeItems: 'Removing layers',
   applySpacing: 'Evening out spacing', alignmentScan: 'Checking alignment', applyMoves: 'Aligning layers', placeVideo: 'Replacing videos', revert: 'Undoing changes', saveVersion: 'Saving a version', focus: 'Showing layer' };
@@ -243,6 +249,7 @@ var calls = {
 // Static previews for the user guide (never used inside Figma): ui.html#pair, #connected, #guide
 if (location.hash && window.parent === window) {
   var h = location.hash.slice(1);
+  document.documentElement.style.cssText = 'width:340px;height:480px;overflow:hidden';
   if (h === 'pair') show('pair');
   if (h === 'connected' || h === 'guide') { show('main'); $('deck').textContent = 'Spring Pitch Deck'; activity('Swapping images', 'Swapping image 14 of 38', 0.37);
     ['Paired with the app', 'Deck read: 42 slides', 'Saved a version in Figma history'].forEach(log); }

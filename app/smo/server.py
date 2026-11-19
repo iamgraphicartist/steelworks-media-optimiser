@@ -135,6 +135,14 @@ class Bridge:
         ws = web.WebSocketResponse(heartbeat=20, max_msg_size=256 << 20)
         await ws.prepare(request)
         token = self.engine.check_plugin_token(request.query.get("token"), request.query.get("pair"))
+        if not token and request.query.get("request"):
+            await ws.send_str(json.dumps({"type": "waiting"}))
+            token = await self.engine.request_pairing()
+            if not token:
+                await ws.send_str(json.dumps({"type": "denied", "message": "Not allowed in the app. Try again and click Allow."}))
+                await ws.close()
+                return ws
+            await ws.send_str(json.dumps({"type": "paired", "token": token}))
         if not token:
             if request.query.get("token"):
                 await ws.close(code=4001, message=b"pair again")

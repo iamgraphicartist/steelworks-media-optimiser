@@ -66,6 +66,10 @@ jobs:
           SMO_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
           SMO_NOTARY_PROFILE: ${{ secrets.MAC_NOTARY_PROFILE }}
           SMO_TARGET_ARCH: ${{ runner.os == 'macOS' && matrix.arch || '' }}
+          # Optional: set these as repository *variables* (Settings › Secrets and variables › Actions › Variables)
+          # so every installer comes ready to sign in. They are public app IDs, not secrets.
+          SMO_DROPBOX_APP_KEY: ${{ vars.DROPBOX_APP_KEY }}
+          SMO_FIGMA_CLIENT_ID: ${{ vars.FIGMA_CLIENT_ID }}
         run: python scripts/build.py
 
       - uses: actions/upload-artifact@v4

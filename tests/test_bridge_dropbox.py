@@ -71,6 +71,22 @@ class TestBridge(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.engine.state["connections"]["plugin"]["connected"])
         await ws2.close()
 
+    async def test_one_click_pairing_needs_allow(self):
+        ws = await self.http.ws_connect(f"{self.base}/plugin?request=1")
+        self.assertEqual(json.loads((await ws.receive()).data)["type"], "waiting")
+        self.assertTrue(self.engine.state["pairRequest"])
+        await self.engine.a_plugin_allow({"allow": True})
+        msg = json.loads((await ws.receive()).data)
+        self.assertEqual(msg["type"], "paired")
+        self.assertTrue(self.engine.valid_token(msg["token"]))
+        await ws.close()
+
+    async def test_one_click_pairing_can_be_refused(self):
+        ws = await self.http.ws_connect(f"{self.base}/plugin?request=1")
+        await ws.receive()
+        await self.engine.a_plugin_allow({"allow": False})
+        self.assertEqual(json.loads((await ws.receive()).data)["type"], "denied")
+
     async def test_stale_token_asked_to_repair(self):
         ws = await self.http.ws_connect(f"{self.base}/plugin?token=nope")
         m = await ws.receive()

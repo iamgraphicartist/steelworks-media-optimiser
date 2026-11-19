@@ -33,15 +33,15 @@ Then follow the **[user guide](docs/USER_GUIDE.md)**: it walks through every scr
 
 | | |
 |---|---|
-| **Connect:** Figma, Dropbox and the plugin, paired with a code<br>![Connect](docs/images/01-connect.png) | **Review:** what makes the deck heavy, slide by slide<br>![Review](docs/images/03-review.png) |
+| **Connect:** the only setup: import the plugin once, then click Allow<br>![Connect](docs/images/01b-connect-allow.png) | **Review:** what makes the deck heavy, slide by slide<br>![Review](docs/images/03-review.png) |
 | **Clean up:** hidden, switched-off and covered media<br>![Clean up](docs/images/04-cleanup.png) | **Images:** resized to 1.5× display size<br>![Images](docs/images/05-images.png) |
 | **Videos & GIFs:** found in Dropbox, proven by SHA-1, compressed<br>![Videos](docs/images/06-videos.png) | **Spacing:** 16 px thumbnail grids<br>![Spacing](docs/images/07-spacing.png) |
 | **Alignment:** headers, footers and text on the layout<br>![Alignment](docs/images/08-alignment.png) | **Report:** before and after, replace list, undo<br>![Report](docs/images/09-report.png) |
-| **Settings:** every key has an ⓘ explaining how to get it<br>![Settings help](docs/images/12-settings-figma-help.png) | **Dark mode** follows the system<br>![Dark](docs/images/10-report-dark.png) |
+| **Settings:** found automatically, with an ⓘ on every field<br>![Settings help](docs/images/12-settings.png) | **Dark mode** follows the system<br>![Dark](docs/images/10-report-dark.png) |
 
 **The Figma plugin panel:**
 
-| Pair once | Connected | Guided video drag-in |
+| Click Connect once | Connected | Guided video drag-in |
 |---|---|---|
 | ![Pair](docs/images/plugin-pair.png) | ![Connected](docs/images/plugin-connected.png) | ![Guide](docs/images/plugin-guide.png) |
 
@@ -89,20 +89,20 @@ GIFs follow the same path, set to autoplay, loop, muted and no controls. Where t
 
 ## Install (everyone in the studio)
 
-**Windows 10/11:** run `Steelworks-Media-Optimiser-1.0.0-Windows-Setup.exe`. No admin rights needed, and ffmpeg is included.
+1. Download and run the installer from **[Releases](../../releases/latest)**: Windows `.exe`, or Mac `.dmg` (arm64 for Apple silicon, x86_64 for Intel). ffmpeg is included. The Mac app isn't signed by Apple yet: the first time, right-click it, choose **Open**, then **Open** again.
+2. Have **Dropbox for desktop** installed and signed in. The app uses that folder automatically, with no keys and no sign-in. Online-only files are downloaded by Dropbox when the app reads them.
+3. In the app's **Connect** page, click **Show plugin file**. In Figma: **Plugins › Development › Import plugin from manifest…** (first time only).
+4. Run the plugin in a deck, click **Connect**, then click **Allow** in the app.
 
-**macOS 11+:** open `Steelworks-Media-Optimiser-1.0.0-macOS-arm64.dmg` (Apple silicon) or `-x86_64.dmg` (Intel) and drag the app into Applications. The release builds include ffmpeg; if the Connect page ever says *Missing*, run `brew install ffmpeg`. The app isn't signed by Apple yet: the first time, right-click it, choose **Open**, then **Open** again.
+No developer accounts, keys or codes are needed for everyday use. Later, an admin can publish the plugin privately to the Steelworks Figma organisation (**Plugins › Manage plugins › Publish**, *private*), which removes step 3 for everyone.
 
-**The Figma plugin (once per person):**
-1. In the Figma desktop app: **Plugins › Development › Import plugin from manifest…**
-2. Pick `manifest.json` from the plugin folder. On Windows there's a Start-menu shortcut called *Steelworks Media Optimiser – Figma plugin folder*. You can also use `Steelworks-Media-Optimiser-Figma-Plugin-1.0.0.zip` (unzip first), or `plugin/manifest.json` in this repo.
-3. Open a deck and run **Plugins › Development › Steelworks Media Optimiser**. Type the six-digit code the app shows. You only pair once per computer.
+## Optional, for IT: online Dropbox search and Figma sign-in
 
-Later, an admin can publish the plugin privately to the Steelworks organisation (**Plugins › Manage plugins › Publish**, *private to organisation*) so nobody has to import it. If you do, Figma gives the plugin a numeric `id`; put it in `plugin/manifest.json`.
+Not needed for everyday use. Add these only if you want the app to also search Dropbox folders that people haven't added to their computer, or to show deck thumbnails. The fastest route: set them once as **repository variables** (**Settings › Secrets and variables › Actions › Variables**: `DROPBOX_APP_KEY`, optionally `FIGMA_CLIENT_ID`). Every installer GitHub builds then comes pre-configured, and people just click **Sign in with Dropbox**. Both are public app IDs, not secrets.
 
----
+The Settings window explains each step too (click **ⓘ** under *Advanced: keys for IT*):
 
-## One-time setup for IT: OAuth apps and keys
+![Dropbox key help](docs/images/13-settings-dropbox-help.png)
 
 The same steps are built into the app: click the **ⓘ** next to each field in **Settings**.
 
@@ -198,7 +198,7 @@ Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.0.zip`. The build r
 ## Security
 
 * The bridge listens on loopback only and refuses non-loopback `Host` headers (blocks DNS rebinding).
-* The plugin must pair with a six-digit code shown in the app. Each code works once and is swapped for a long random token. Uploads and downloads need that token.
+* The plugin must be approved in the app: click **Allow** when it asks, or type the six-digit code (each works once). Either way it gets a long random token, which uploads and downloads require.
 * The app's own UI socket needs a random key generated at each launch.
 * Uploaded image bytes are rejected unless their SHA-1 matches the claimed Figma hash.
 * OAuth uses PKCE (S256) with a state check. Tokens live in DPAPI or the Keychain.
@@ -208,8 +208,8 @@ Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.0.zip`. The build r
 
 | Item | Status |
 |---|---|
-| Figma OAuth sign-in | Code is complete; needs the Figma app registered (above) and a real sign-in to confirm the endpoint and scopes. |
-| Dropbox OAuth + team search | Code is complete and unit-tested against a fake Dropbox API; needs the app key and a real sign-in on the Steelworks team. |
+| Figma OAuth sign-in | Optional (deck thumbnails only). Code complete; needs a Figma app registered to test. |
+| Dropbox | Works with no setup through the Dropbox desktop folder (online-only files hydrate on read; check this on a real online-only video). Online search via OAuth is optional, unit-tested against a fake API, and needs the app key. |
 | Plugin inside real Figma | Built and exercised against the mock API. Import it as a development plugin and run it on a copy of a deck first. |
 | Automatic video path (`createVideoAsync`) | Used only if the Figma build exposes it; otherwise the guided drag-in path runs (the path verified in the manual run). Confirm which one your Figma uses. |
 | Video playback settings | Copied when Figma exposes them to plugins; otherwise flagged as *Check playback* in the replace list. |

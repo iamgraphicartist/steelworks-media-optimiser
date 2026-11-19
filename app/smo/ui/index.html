@@ -29,8 +29,36 @@
 <div class="scrim" id="settings">
   <div class="sheet">
     <h2>Settings</h2>
-    <p class="muted small" style="margin:0 0 18px">These are only stored on this computer; the Figma secret goes in the system keychain. If someone at Steelworks has already set these up, ask them for the values. Otherwise click <span class="info-inline">i</span> next to each one.</p>
+    <p class="muted small" style="margin:0 0 18px">Everything here is found automatically. You normally don't need to change anything.</p>
 
+    <div class="field">
+      <label>Dropbox folder on this computer <span class="opt">optional</span> <button class="info" data-help="h_local" aria-label="How to find this">i</button></label>
+      <div class="input-row"><input class="input" id="s_local_dropbox_root" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="folder" data-target="s_local_dropbox_root">Choose…</button></div>
+      <div class="help" id="h_local">
+        <p>Where the Dropbox desktop app keeps your synced files. If a video is already synced here, the app checks it straight away instead of downloading it, which makes matching much faster.</p>
+        <ol>
+          <li>Usually it's found automatically. If the field shows a grey <b>Found automatically</b> path, leave it empty.</li>
+          <li>To check: click the Dropbox icon in the taskbar (Windows) or menu bar (Mac), then your profile picture, then <b>Preferences › Sync</b>. The path under <b>Dropbox folder location</b> is the one you want.</li>
+          <li>Typical locations: <code>E:\Steelworks Dropbox</code> on Windows, or <code>~/Library/CloudStorage/Dropbox-Steelworks</code> on a Mac.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>ffmpeg <span class="opt">optional</span> <button class="info" data-help="h_ffmpeg" aria-label="How to get this">i</button></label>
+      <div class="input-row"><input class="input" id="s_ffmpeg" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="file" data-target="s_ffmpeg">Choose…</button></div>
+      <div class="help" id="h_ffmpeg">
+        <p>ffmpeg is the free tool that compresses videos and turns GIFs into MP4s. The Windows installer already includes it, so leave this empty unless the Connect page says <b>Missing</b>.</p>
+        <ol>
+          <li><b>Mac:</b> install Homebrew if you don't have it, then run <code>brew install ffmpeg</code> in Terminal. <button class="btn mini" data-url="https://brew.sh">Open brew.sh ↗</button></li>
+          <li><b>Windows:</b> run <code>winget install Gyan.FFmpeg</code> in PowerShell, or download a build. <button class="btn mini" data-url="https://www.gyan.dev/ffmpeg/builds/">Open ffmpeg builds ↗</button></li>
+          <li>Restart the app. If it still isn't found, click <b>Choose…</b> and select the <code>ffmpeg</code> program (<code>ffmpeg.exe</code> on Windows). <code>ffprobe</code> must be in the same folder.</li>
+        </ol>
+      </div>
+    </div>
+    <details class="advanced">
+      <summary>Advanced: keys for IT <span class="opt">(not needed for everyday use)</span></summary>
+      <p class="muted small" style="margin:10px 0 14px">Only needed to sign in to Dropbox online (to search folders that aren't in your Dropbox folder) or to show deck thumbnails. Installers from GitHub can come with these filled in. Click <span class="info-inline">i</span> for how to get each one.</p>
     <div class="field">
       <label>Figma client ID <button class="info" data-help="h_figma" aria-label="How to get this">i</button></label>
       <input class="input" id="s_figma_client_id" autocomplete="off" spellcheck="false" placeholder="e.g. AbC123dEf456…">
@@ -71,31 +99,7 @@
       </div>
     </div>
 
-    <div class="field">
-      <label>Dropbox folder on this computer <span class="opt">optional</span> <button class="info" data-help="h_local" aria-label="How to find this">i</button></label>
-      <div class="input-row"><input class="input" id="s_local_dropbox_root" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="folder" data-target="s_local_dropbox_root">Choose…</button></div>
-      <div class="help" id="h_local">
-        <p>Where the Dropbox desktop app keeps your synced files. If a video is already synced here, the app checks it straight away instead of downloading it, which makes matching much faster.</p>
-        <ol>
-          <li>Usually it's found automatically. If the field shows a grey <b>Found automatically</b> path, leave it empty.</li>
-          <li>To check: click the Dropbox icon in the taskbar (Windows) or menu bar (Mac), then your profile picture, then <b>Preferences › Sync</b>. The path under <b>Dropbox folder location</b> is the one you want.</li>
-          <li>Typical locations: <code>E:\Steelworks Dropbox</code> on Windows, or <code>~/Library/CloudStorage/Dropbox-Steelworks</code> on a Mac.</li>
-        </ol>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>ffmpeg <span class="opt">optional</span> <button class="info" data-help="h_ffmpeg" aria-label="How to get this">i</button></label>
-      <div class="input-row"><input class="input" id="s_ffmpeg" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="file" data-target="s_ffmpeg">Choose…</button></div>
-      <div class="help" id="h_ffmpeg">
-        <p>ffmpeg is the free tool that compresses videos and turns GIFs into MP4s. The Windows installer already includes it, so leave this empty unless the Connect page says <b>Missing</b>.</p>
-        <ol>
-          <li><b>Mac:</b> install Homebrew if you don't have it, then run <code>brew install ffmpeg</code> in Terminal. <button class="btn mini" data-url="https://brew.sh">Open brew.sh ↗</button></li>
-          <li><b>Windows:</b> run <code>winget install Gyan.FFmpeg</code> in PowerShell, or download a build. <button class="btn mini" data-url="https://www.gyan.dev/ffmpeg/builds/">Open ffmpeg builds ↗</button></li>
-          <li>Restart the app. If it still isn't found, click <b>Choose…</b> and select the <code>ffmpeg</code> program (<code>ffmpeg.exe</code> on Windows). <code>ffprobe</code> must be in the same folder.</li>
-        </ol>
-      </div>
-    </div>
+    </details>
     <p class="muted small" id="s_info"></p>
     <div class="actions"><button class="btn secondary" id="s_forget">Unpair Figma plugins</button><span class="spacer"></span><button class="btn secondary" id="s_cancel">Cancel</button><button class="btn" id="s_save">Save</button></div>
   </div>
