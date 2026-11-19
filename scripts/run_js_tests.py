@@ -47,10 +47,8 @@ def main():
             r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=120)
         except subprocess.TimeoutExpired:
             shutil.rmtree(prof, ignore_errors=True)
-            print(f"== {os.path.basename(page)}
-The browser didn't respond - skipped "
-                  "(set SMO_STRICT_JS_TESTS=1 to fail instead).
-")
+            print(f"== {os.path.basename(page)}: the browser didn't respond - skipped "
+                  "(set SMO_STRICT_JS_TESTS=1 to fail instead).")
             if os.environ.get("SMO_STRICT_JS_TESTS"):
                 failed += 1
             continue
