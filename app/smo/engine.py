@@ -31,7 +31,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.2"
+VERSION = "1.0.3"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 

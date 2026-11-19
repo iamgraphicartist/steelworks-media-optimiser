@@ -394,7 +394,7 @@ if (typeof module !== 'undefined') module.exports = SMOCore;
  * document happens here.
  */
 /* global SMOCore, figma, __html__ */
-var PLUGIN_VERSION = '1.0.2';
+var PLUGIN_VERSION = '1.0.3';
 var MEDIA = { IMAGE: true, VIDEO: true };
 
 figma.showUI(__html__, { width: 340, height: 480, themeColors: true, title: 'Steelworks Media Optimiser' });

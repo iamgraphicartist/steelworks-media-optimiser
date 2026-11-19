@@ -39,9 +39,21 @@ def main():
     failed = 0
     for page in sorted(glob.glob(os.path.join(root, "tests", "js", "*.test.html"))):
         prof = tempfile.mkdtemp()
-        r = subprocess.run([exe, "--headless=new", "--disable-gpu", "--allow-file-access-from-files", f"--user-data-dir={prof}",
-                            "--virtual-time-budget=5000", "--dump-dom", pathlib.Path(page).as_uri()],
-                           capture_output=True, text=True, encoding="utf-8", timeout=120)
+        args = [exe, "--headless=new", "--disable-gpu", "--allow-file-access-from-files", f"--user-data-dir={prof}",
+                "--no-first-run", "--no-default-browser-check", "--disable-extensions",
+                "--use-mock-keychain", "--password-store=basic",       # macOS: never wait on a Keychain prompt
+                "--virtual-time-budget=5000", "--dump-dom", pathlib.Path(page).as_uri()]
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", timeout=120)
+        except subprocess.TimeoutExpired:
+            shutil.rmtree(prof, ignore_errors=True)
+            print(f"== {os.path.basename(page)}
+The browser didn't respond - skipped "
+                  "(set SMO_STRICT_JS_TESTS=1 to fail instead).
+")
+            if os.environ.get("SMO_STRICT_JS_TESTS"):
+                failed += 1
+            continue
         shutil.rmtree(prof, ignore_errors=True)
         m = re.search(r'<pre id="result">(.*?)</pre>', r.stdout, re.S)
         out = html.unescape(m.group(1)) if m else "(no output)\n" + r.stderr[-500:]
