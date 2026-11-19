@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Plugin harness · Steelworks Media Optimiser</title>
+<style>
+  body { margin: 0; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; background: #e5e5ea; color: #1d1d1f; display: grid; grid-template-columns: 1fr 340px; height: 100vh; }
+  #canvas { overflow: auto; padding: 24px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; align-content: start; }
+  .slide { position: relative; aspect-ratio: 16/9; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+  .slide-name { position: absolute; left: 8px; top: 6px; font-size: 11px; color: #fff; text-shadow: 0 1px 2px #000; z-index: 99; }
+  .n { position: absolute; background-size: cover; background-position: center; outline: 1px solid rgba(255,255,255,.25); }
+  .n.vid { background: #111; color: #fff; display: grid; place-items: center; font-size: 11px; }
+  .n.focus { outline: 2px solid #0a84ff; z-index: 98; }
+  .n.text { background: none; outline: 1px dashed rgba(255,255,255,.6); color: #fff; font-weight: 600; }
+  aside { border-left: 1px solid #d1d1d6; background: #fff; display: flex; flex-direction: column; }
+  aside .bar { padding: 8px 12px; font-size: 11px; color: #6e6e73; border-bottom: 1px solid #e5e5ea; }
+  iframe { border: 0; width: 340px; height: 480px; }
+  #log { flex: 1; overflow: auto; font: 11px ui-monospace, Consolas, monospace; padding: 8px 12px; color: #444; border-top: 1px solid #e5e5ea; }
+</style>
+</head>
+<body>
+<div id="canvas"></div>
+<aside><div class="bar">Mock Figma · real plugin code (dist/code.js + dist/ui.html)</div><div id="ui"></div><div id="log"></div></aside>
+<script src="mock-figma.js"></script>
+<script>
+(async function () {
+  var Q = new URLSearchParams(location.search);
+  var AUTO_DROP = Q.get('autodrop') !== '0';
+  var BASE = location.origin;
+  function log(t) { var d = document.createElement('div'); d.textContent = new Date().toLocaleTimeString() + '  ' + t; document.getElementById('log').prepend(d); }
+  var deck = await (await fetch('/samples/deck.json')).json();
+  var bytes = {};
+  await Promise.all(Object.keys(deck.files).map(async function (h) {
+    bytes[h] = new Uint8Array(await (await fetch('/samples/images/' + deck.files[h])).arrayBuffer());
+  }));
+  var html = (await (await fetch('../dist/ui.html')).text()).replace('var PORT = 47821', 'var PORT = ' + (location.port || 80)); // follow the demo app's port
+  var urls = {};
+  function urlFor(h) { if (!urls[h] && mock.images[h]) urls[h] = URL.createObjectURL(new Blob([mock.images[h]])); return urls[h]; }
+  var focusId = null, renderTimer;
+  function render() {
+    clearTimeout(renderTimer);
+    renderTimer = setTimeout(function () {
+      var c = document.getElementById('canvas'); c.innerHTML = '';
+      mock.slides.forEach(function (s) {
+        var el = document.createElement('div'); el.className = 'slide';
+        el.innerHTML = '<div class="slide-name">' + s.name + '</div>';
+        (function rec(n) {
+          (n.children || []).forEach(function (k) {
+            if (k.visible) {
+              var m = k.absoluteTransform, sx = s.absoluteTransform;
+              var d = document.createElement('div'); d.className = 'n';
+              d.style.left = ((m[0][2] - sx[0][2]) / 19.2) + '%'; d.style.top = ((m[1][2] - sx[1][2]) / 10.8) + '%';
+              d.style.width = (k.width / 19.2) + '%'; d.style.height = (k.height / 10.8) + '%';
+              d.style.borderRadius = (k.cornerRadius / 4) + 'px';
+              var f = k._fills.filter(function (p) { return p.visible !== false; }).slice(-1)[0];
+              if (k.type === 'TEXT') { d.className += ' text'; d.textContent = k.name; }
+              else if (f && f.type === 'IMAGE') { d.style.backgroundImage = 'url(' + urlFor(f.imageHash) + ')'; d.style.backgroundSize = f.scaleMode === 'FIT' ? 'contain' : 'cover'; d.style.backgroundRepeat = 'no-repeat'; }
+              else if (f && f.type === 'VIDEO') { d.className += ' vid'; d.textContent = '▶ ' + k.name; }
+              if (k.id === focusId) d.className += ' focus';
+              d.title = k.name;
+              el.appendChild(d);
+              rec(k);
+            }
+          });
+        })(s);
+        c.appendChild(el);
+      });
+    }, 50);
+  }
+  var iframe;
+  var mock = new MockFigma({
+    deck: deck.deck, bytes: bytes, log: log, onMutate: render,
+    onFocus: function (n) { focusId = n && n.id; render(); },
+    mountUI: function (h) {
+      iframe = document.createElement('iframe'); iframe.srcdoc = h; document.getElementById('ui').appendChild(iframe); return iframe;
+    },
+    onUIMessage: function (m) {
+      if (m.type === 'guided-show') {
+        log('Guided placement: ' + m.fileName);
+        if (AUTO_DROP) setTimeout(async function () {
+          var tok = mock.storage['smo-token'];
+          var b = new Uint8Array(await (await fetch(BASE + '/out/' + encodeURIComponent(m.fileName) + '?token=' + encodeURIComponent(tok))).arrayBuffer());
+          log('Simulated drag-in of ' + m.fileName + ' (' + b.length + ' bytes)');
+          mock.simulateDrop(b, m.fileName.replace(/\.mp4$/, ''), mock.slides[0]);
+        }, 900);
+      }
+    }
+  });
+  window.figma = mock.api; window.__html__ = html; window.mock = mock;
+  window.addEventListener('message', function (ev) {
+    if (ev.source === iframe.contentWindow && ev.data && ev.data.pluginMessage) mock.deliver(ev.data.pluginMessage);
+  });
+  render();
+  var s = document.createElement('script'); s.src = '../dist/code.js'; document.body.appendChild(s);
+  // Auto-pair with the demo app: read the code the app shows and type it in.
+  iframe = iframe || document.querySelector('iframe');
+  setTimeout(async function () {
+    if (mock.storage['smo-token']) return;
+    var code = (await (await fetch(BASE + '/demo/code')).json()).code;
+    var doc = document.querySelector('iframe').contentDocument;
+    var boxes = doc.querySelectorAll('#code input');
+    for (var i = 0; i < 6; i++) boxes[i].value = code[i];
+    doc.getElementById('pairBtn').disabled = false; doc.getElementById('pairBtn').click();
+    log('Paired using code ' + code);
+  }, 600);
+})();
+</script>
+</body>
+</html>

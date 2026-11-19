@@ -1,0 +1,14 @@
+{
+  "name": "Steelworks Media Optimiser",
+  "id": "steelworks-media-optimiser",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": ["slides", "figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["http://localhost:47821", "ws://localhost:47821"],
+    "devAllowedDomains": ["http://localhost:47821", "ws://localhost:47821"],
+    "reasoning": "Talks only to the Steelworks Media Optimiser desktop app running on this computer, which does the image and video compression."
+  }
+}

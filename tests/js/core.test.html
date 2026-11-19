@@ -1,0 +1,215 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>core.js tests</title>
+<pre id="result">running</pre>
+<script src="../../plugin/src/core.js"></script>
+<script>
+var C = SMOCore, results = [], I = [[1, 0, 0], [0, 1, 0]];
+function T(name, fn) { try { fn(); results.push('ok   ' + name); } catch (e) { results.push('FAIL ' + name + ' :: ' + e.message); } }
+function eq(a, b, msg) { var A = JSON.stringify(a), B = JSON.stringify(b); if (A !== B) throw new Error((msg || '') + ' expected ' + B + ' got ' + A); }
+function near(a, b, msg) { if (Math.abs(a - b) > 0.01) throw new Error((msg || '') + ' expected ' + b + ' got ' + a); }
+function at(x, y) { return [[1, 0, x], [0, 1, y]]; }
+var SLIDE = { x: 0, y: 0, width: 1920, height: 1080 };
+
+// ---- requiredSize
+T('FILL uses the covering scale', function () {
+  var r = C.requiredSize({ scaleMode: 'FILL' }, 500, 340, 1800, 1800);
+  near(r.w, 500); near(r.h, 500);
+});
+T('FIT uses the containing scale', function () {
+  var r = C.requiredSize({ scaleMode: 'FIT' }, 600, 300, 2400, 1200);
+  near(r.w, 600); near(r.h, 300);
+});
+T('CROP divides by the visible fraction', function () {
+  var r = C.requiredSize({ scaleMode: 'CROP', imageTransform: [[0.5, 0, 0.25], [0, 0.25, 0.1]] }, 1000, 400, 4000, 4000);
+  near(r.w, 2000); near(r.h, 1600);
+});
+T('TILE uses scalingFactor', function () {
+  var r = C.requiredSize({ scaleMode: 'TILE', scalingFactor: 0.5 }, 1000, 1000, 400, 300);
+  near(r.w, 200); near(r.h, 150);
+});
+T('absolute scale is applied', function () {
+  var r = C.requiredSize({ scaleMode: 'FILL' }, 100, 100, 1000, 1000, { x: 2, y: 2 });
+  near(r.w, 200);
+});
+
+// ---- sniff
+function bytes(arr, len) { var b = new Uint8Array(len || 64); arr.forEach(function (v, i) { b[i] = v; }); return b; }
+T('jpeg is opaque', function () { eq(C.sniff(bytes([0xFF, 0xD8, 0xFF])), { format: 'jpeg', opaque: true }); });
+T('png RGB is opaque, RGBA is not', function () {
+  var rgb = bytes([0x89, 0x50, 0x4E, 0x47]); rgb[25] = 2;
+  var rgba = bytes([0x89, 0x50, 0x4E, 0x47]); rgba[25] = 6;
+  eq(C.sniff(rgb).opaque, true); eq(C.sniff(rgba).opaque, false);
+});
+T('png with tRNS is not opaque', function () {
+  var b = bytes([0x89, 0x50, 0x4E, 0x47], 80); b[25] = 2;
+  // chunk at 33: length 2, 'tRNS'
+  b[33] = 0; b[34] = 0; b[35] = 0; b[36] = 2; [116, 82, 78, 83].forEach(function (c, i) { b[37 + i] = c; });
+  eq(C.sniff(b).opaque, false);
+});
+T('gif and unknown are not opaque', function () {
+  eq(C.sniff(bytes([0x47, 0x49, 0x46])).format, 'gif'); eq(C.sniff(bytes([1, 2, 3])).opaque, false);
+});
+T('webp lossy opaque / VP8X alpha flag', function () {
+  var s = 'RIFF....WEBPVP8 ', b = bytes(s.split('').map(function (c) { return c.charCodeAt(0); }));
+  eq(C.sniff(b), { format: 'webp', opaque: true });
+  var x = 'RIFF....WEBPVP8X', b2 = bytes(x.split('').map(function (c) { return c.charCodeAt(0); })); b2[20] = 0x10;
+  eq(C.sniff(b2).opaque, false);
+});
+
+// ---- coverage
+function item(id, m, w, h, extra) { return Object.assign({ id: id, m: m, w: w, h: h, r: 0, clips: [], media: true, opaque: true }, extra || {}); }
+T('fully covered by an opaque layer above', function () {
+  var c = C.coverage([item('a', at(100, 100), 400, 300), item('b', at(0, 0), 1920, 1080)], SLIDE);
+  eq(c.a.state, 'covered'); eq(c.a.by, ['b']); eq(c.b.state, 'visible');
+});
+T('not covered when the layer above is transparent', function () {
+  var c = C.coverage([item('a', at(100, 100), 400, 300), item('b', at(0, 0), 1920, 1080, { opaque: false })], SLIDE);
+  eq(c.a.state, 'visible');
+});
+T('partially covered stays visible', function () {
+  var c = C.coverage([item('a', at(0, 0), 1000, 500), item('b', at(0, 0), 990, 500)], SLIDE);
+  eq(c.a.state, 'visible');
+});
+T('covered by two layers together', function () {
+  var c = C.coverage([item('a', at(0, 0), 1000, 500), item('l', at(0, 0), 500, 500), item('r', at(500, 0), 500, 500)], SLIDE);
+  eq(c.a.state, 'covered'); eq(c.a.by.sort(), ['l', 'r']);
+});
+T('layer below never covers one above', function () {
+  var c = C.coverage([item('big', at(0, 0), 1920, 1080), item('a', at(10, 10), 100, 100)], SLIDE);
+  eq(c.a.state, 'visible'); eq(c.big.state, 'visible');
+});
+T('outside the slide', function () {
+  var c = C.coverage([item('a', at(2000, 0), 300, 300)], SLIDE);
+  eq(c.a.state, 'offslide');
+});
+T('only the on-slide part needs covering', function () {
+  var c = C.coverage([item('a', at(1800, 0), 400, 300), item('b', at(1700, 0), 220, 400)], SLIDE);
+  eq(c.a.state, 'covered');
+});
+T('rounded corners on the cover leave corners visible', function () {
+  var c = C.coverage([item('a', at(0, 0), 400, 400), item('b', at(0, 0), 400, 400, { r: 100 })], SLIDE);
+  eq(c.a.state, 'visible');
+});
+T('rotated cover is tested in its own space', function () {
+  var cos = Math.cos(Math.PI / 4), sin = Math.sin(Math.PI / 4);
+  var big = [[cos, -sin, 960], [sin, cos, -400]]; // 45deg, huge
+  var c = C.coverage([item('a', at(900, 400), 100, 100), item('b', big, 2000, 2000)], SLIDE);
+  eq(c.a.state, 'covered');
+});
+T('a clipped cover only counts inside its clip', function () {
+  var c = C.coverage([item('a', at(0, 0), 400, 400), item('b', at(0, 0), 400, 400, { clips: [{ x: 0, y: 0, width: 200, height: 400 }] })], SLIDE);
+  eq(c.a.state, 'visible');
+});
+T('20x20 grid plus edge ring per layer', function () { var c = C.coverage([item('a', at(0, 0), 100, 100)], SLIDE); eq(c.a.visibleSamples, 400 + 4 * 21); });
+T('a 2px sliver along the bottom keeps the layer', function () {
+  var c = C.coverage([item('a', at(0, 0), 1000, 500), item('b', at(0, 0), 1000, 498)], SLIDE);
+  eq(c.a.state, 'visible');
+});
+T('inRoundedRect', function () { eq(C.inRoundedRect(1, 1, 100, 100, 20), false); eq(C.inRoundedRect(50, 1, 100, 100, 20), true); });
+T('invert round-trips', function () {
+  var m = [[0.8, -0.6, 10], [0.6, 0.8, 20]], iv = C.invert(m), p = C.apply(m, 3, 4), q = C.apply(iv, p.x, p.y);
+  near(q.x, 3); near(q.y, 4);
+});
+
+// ---- grids
+function cells(pos, w, h) { return pos.map(function (p, i) { return { id: 'n' + i, x: p[0], y: p[1], w: w, h: h }; }); }
+T('uneven 3x2 grid gets a 16px plan with the same outer edges', function () {
+  var g = C.analyseGrid(cells([[0, 0], [512, 0], [1040, 0], [0, 360], [512, 360], [1040, 360]], 500, 340));
+  eq([g.cols, g.rows, g.even], [3, 2, false]);
+  eq(g.gapsX, [12, 28]); eq(g.gapsY, [20]);
+  var xs = g.plan.map(function (p) { return p.x; }), rights = g.plan.map(function (p) { return p.x + p.w; });
+  near(Math.min.apply(null, xs), 0); near(Math.max.apply(null, rights), 1540);
+  var row0 = g.plan.filter(function (p) { return p.y === 0; }).sort(function (a, b) { return a.x - b.x; });
+  near(row0[1].x - (row0[0].x + row0[0].w), 16); near(row0[2].x - (row0[1].x + row0[1].w), 16);
+  near(Math.max.apply(null, g.plan.map(function (p) { return p.y + p.h; })), 700);
+});
+T('already even grid is reported even', function () {
+  var g = C.analyseGrid(cells([[0, 0], [116, 0], [232, 0]], 100, 100));
+  eq(g.even, true);
+});
+T('single row with uneven gaps', function () {
+  var g = C.analyseGrid(cells([[0, 0], [110, 0], [240, 0], [350, 0]], 100, 60));
+  eq([g.cols, g.rows, g.even], [4, 1, false]);
+});
+T('collage (mixed sizes) is skipped', function () {
+  var it = cells([[0, 0], [116, 0], [232, 0]], 100, 100); it[1].w = 160;
+  eq(C.analyseGrid(it), null);
+});
+T('overlapping layout is skipped', function () {
+  eq(C.analyseGrid(cells([[0, 0], [80, 0], [200, 0]], 100, 100)), null);
+});
+T('scattered items are not a grid', function () {
+  eq(C.analyseGrid(cells([[0, 0], [700, 0], [1400, 0]], 100, 100)), null);
+});
+T('misaligned rows are skipped', function () {
+  eq(C.analyseGrid(cells([[0, 0], [116, 9], [232, 0]], 100, 100)), null);
+});
+T('rotated items are skipped', function () {
+  var it = cells([[0, 0], [116, 0], [232, 0]], 100, 100); it[0].rotated = true;
+  eq(C.analyseGrid(it), null);
+});
+T('fewer than 3 items is not a grid', function () { eq(C.analyseGrid(cells([[0, 0], [110, 0]], 100, 100)), null); });
+
+// ---- alignment
+function L(id, slide, name, type, x, y, w, h) { return { id: id, slide: slide, name: name, type: type, x: x, y: y, w: w, h: h }; }
+function deck(extra) {
+  var out = [];
+  for (var s = 1; s <= 5; s++) {
+    out.push(L('logo' + s, s, 'Logo', 'TEXT', s === 3 ? 126 : 120, 60, 200, 30));
+    out.push(L('pg' + s, s, 'Page 0' + s, 'TEXT', 1740 + (s === 2 ? 4 : 0), s === 4 ? 1011 : 1004, 60, 24));
+    out.push(L('t' + s, s, 'Title', 'TEXT', s === 5 ? 129 : 120, 200, 800, 60));
+    out.push(L('bg' + s, s, 'Background', 'RECTANGLE', 0, 0, 1920, 1080));
+  }
+  return out.concat(extra || []).map(function (l) { l.fullBleed = l.w >= 1918; return l; });
+}
+T('margins are inferred from where content usually starts', function () {
+  var g = C.detectGuides(deck(), 1920, 1080);
+  eq([g.left, g.source], [120, 'inferred']);
+  eq(g.right, 120);
+});
+T('Figma column grid wins over inference', function () {
+  var g = C.detectGuides(deck(), 1920, 1080, [{ pattern: 'COLUMNS', alignment: 'STRETCH', count: 12, gutterSize: 24, offset: 96 }]);
+  eq([g.left, g.right, g.source, g.columns.length], [96, 96, 'layout grid', 24]);
+  near(g.columns[23], 1920 - 96);
+});
+T('off-by-a-few headers and footers snap to the consensus', function () {
+  var layers = deck(), g = C.detectGuides(layers, 1920, 1080);
+  var plan = C.alignmentPlan(layers, 1920, 1080, g), by = {};
+  plan.forEach(function (p) { by[p.id] = p; });
+  eq([by.logo3.role, by.logo3.after.x, by.logo3.after.y], ['header', 120, 60]);
+  eq([by.pg4.role, by.pg4.after.y], ['footer', 1004]);
+  eq(by.pg2.after.x, 1740);   // right-aligned group: anchors on the edge most agree on
+  eq([by.t5.role, by.t5.after.x], ['text', 120]);
+  eq(Object.keys(by).sort(), ['logo3', 'pg2', 'pg4', 't5']);
+});
+T('nothing moves further than the tolerance', function () {
+  var layers = deck([L('far', 2, 'Quote', 'TEXT', 160, 500, 600, 80)]);
+  var plan = C.alignmentPlan(layers, 1920, 1080, C.detectGuides(layers, 1920, 1080));
+  eq(plan.some(function (p) { return p.id === 'far'; }), false);
+});
+T('a deliberately different header is left alone', function () {
+  var layers = deck(); layers.filter(function (l) { return l.id === 'logo2'; })[0].x = 860;
+  var plan = C.alignmentPlan(layers, 1920, 1080, C.detectGuides(layers, 1920, 1080));
+  eq(plan.some(function (p) { return p.id === 'logo2'; }), false);
+});
+T('right edges snap to the right margin', function () {
+  var layers = deck([L('cap', 2, 'Caption', 'TEXT', 1300, 600, 494, 40)]); // right edge 1794, margin line 1800
+  var plan = C.alignmentPlan(layers, 1920, 1080, C.detectGuides(layers, 1920, 1080));
+  var p = plan.filter(function (p) { return p.id === 'cap'; })[0];
+  eq(p.after.x, 1306);
+});
+T('body content is never pulled to the footer line', function () {
+  var layers = deck([L('vid', 2, 'Film', 'RECTANGLE', 160, 140, 1600, 890)]); // bottom 1030, footer line ~1028
+  var plan = C.alignmentPlan(layers, 1920, 1080, C.detectGuides(layers, 1920, 1080));
+  var p = plan.filter(function (p) { return p.id === 'vid'; })[0];
+  eq(p ? p.after.y : 140, 140);
+});
+T('aligned decks need no changes', function () {
+  var clean = deck().map(function (l) { if (l.id === 'logo3') l.x = 120; if (l.id === 'pg2') l.x = 1740; if (l.id === 'pg4') l.y = 1004; if (l.id === 't5') l.x = 120; return l; });
+  eq(C.alignmentPlan(clean, 1920, 1080, C.detectGuides(clean, 1920, 1080)), []);
+});
+
+var fails = results.filter(function (r) { return r.indexOf('FAIL') === 0; }).length;
+document.getElementById('result').textContent = results.join('\n') + '\n\n' + (results.length - fails) + ' passed, ' + fails + ' failed\nRESULT:' + (fails ? 'FAIL' : 'PASS');
+</script>

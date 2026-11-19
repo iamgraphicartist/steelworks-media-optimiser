@@ -1,0 +1,4 @@
+﻿Slide,Layer,Type,Why it needs a person,What to do,Source file,Prepared file
+3,Hero Spot,Video,Replaced (check playback),"Check playback settings match the original (loop, sound, autoplay, controls).",Sample Dropbox/Jobs/Final/Hero_Spot_v2.mov,Slide03_Hero Spot_efa97b.mp4
+4,Studio Reel 2026,Video,Replaced (check playback),"Check playback settings match the original (loop, sound, autoplay, controls).",Sample Dropbox/Showreel/Studio Reel 2026 (final).mp4,Slide04_Studio Reel 2026_049c4a.mp4
+4,Teaser,Video,Checked 1 similar file(s); none is the exact original.,"Find the original video, compress it (1080p H.264, CRF 22) and drop it in place of this layer.",,

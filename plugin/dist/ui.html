@@ -1,0 +1,255 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: var(--figma-color-bg, #fff);
+    --bg2: var(--figma-color-bg-secondary, #f5f5f7);
+    --fg: var(--figma-color-text, #1d1d1f);
+    --fg2: var(--figma-color-text-secondary, #6e6e73);
+    --line: var(--figma-color-border, rgba(0,0,0,.08));
+    --accent: #0a84ff;
+    --ok: #30d158;
+    --warn: #ff9f0a;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; }
+  .screen { display: none; padding: 24px 20px; height: 100%; flex-direction: column; animation: in .28s cubic-bezier(.2,.8,.2,1); }
+  .screen.on { display: flex; }
+  @keyframes in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .mark { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; margin-bottom: 16px;
+    background: linear-gradient(180deg, #0e70d2 0%, #1c98e4 36%, #8cbcec 50%, #e2d6ee 60%, #f0cee4 74%, #f096a8 84%, #de483e 94%, #961e18 100%);
+    color: #fff; font-weight: 700; font-size: 17px; letter-spacing: -.02em; box-shadow: 0 6px 18px rgba(222,72,62,.25); }
+  h1 { font-size: 17px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 6px; }
+  p { margin: 0 0 16px; color: var(--fg2); }
+  .code { display: flex; gap: 8px; margin: 4px 0 18px; }
+  .code input { width: 100%; height: 48px; text-align: center; font-size: 22px; font-weight: 600; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg2); color: var(--fg); outline: none; transition: box-shadow .15s, border-color .15s; }
+  .code input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(10,132,255,.25); }
+  button { font: inherit; font-weight: 500; border: 0; border-radius: 8px; padding: 9px 14px; cursor: pointer;
+    background: var(--accent); color: #fff; transition: transform .08s, opacity .15s; }
+  button:active { transform: scale(.98); }
+  button.secondary { background: var(--bg2); color: var(--fg); }
+  button:disabled { opacity: .4; cursor: default; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .card { background: var(--bg2); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+  .status { display: flex; align-items: center; gap: 10px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg2); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px rgba(48,209,88,.18); }
+  .dot.wait { background: var(--warn); animation: pulse 1.4s infinite; }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .title { font-weight: 600; }
+  .sub { color: var(--fg2); font-size: 12px; }
+  .bar { height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-top: 10px; }
+  .bar > i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width .3s ease; }
+  .log { flex: 1; overflow: auto; font-size: 12px; color: var(--fg2); }
+  .log div { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .guide { position: fixed; inset: 0; background: var(--bg); padding: 20px; display: none; flex-direction: column; animation: in .25s; }
+  .guide.on { display: flex; }
+  .pill { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent); background: rgba(10,132,255,.12);
+    padding: 3px 8px; border-radius: 99px; margin-bottom: 12px; }
+  .file { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 10px; background: var(--bg2); margin: 4px 0 14px; }
+  .file svg { flex: none; }
+  .file b { word-break: break-all; font-weight: 600; }
+  ol { margin: 0 0 16px; padding-left: 18px; color: var(--fg2); }
+  ol li { margin-bottom: 6px; }
+  .foot { margin-top: auto; font-size: 11px; color: var(--fg2); text-align: center; }
+  a { color: var(--accent); cursor: pointer; text-decoration: none; }
+</style>
+</head>
+<body>
+  <!-- Pairing -->
+  <section class="screen" id="pair">
+    <div class="mark">SW</div>
+    <h1>Connect to the app</h1>
+    <p>Open <b>Steelworks Media Optimiser</b> on this computer and type the six-digit code it shows.</p>
+    <div class="code" id="code"></div>
+    <button id="pairBtn" disabled>Connect</button>
+    <p class="sub" id="pairMsg" style="margin-top:12px"></p>
+    <div class="foot">You only need to do this once on this computer.</div>
+  </section>
+
+  <!-- Searching -->
+  <section class="screen" id="search">
+    <div class="card status"><span class="dot wait"></span><div><div class="title">Looking for the app…</div>
+      <div class="sub">Make sure Steelworks Media Optimiser is open.</div></div></div>
+    <div class="foot"><a id="repair">Use a new pairing code</a></div>
+  </section>
+
+  <!-- Connected -->
+  <section class="screen" id="main">
+    <div class="card">
+      <div class="status"><span class="dot ok"></span><div><div class="title">Connected</div>
+        <div class="sub" id="deck">—</div></div></div>
+    </div>
+    <div class="card">
+      <div class="title" id="activity">Waiting for the app</div>
+      <div class="sub" id="detail">Choose what to do in Steelworks Media Optimiser.</div>
+      <div class="bar"><i id="bar"></i></div>
+    </div>
+    <div class="log" id="log"></div>
+    <div class="foot">Keep this panel open while the app is working.</div>
+  </section>
+
+  <!-- Guided video placement -->
+  <section class="guide" id="guide">
+    <span class="pill" id="gStep">Video 1 of 1</span>
+    <h1>Drag the new video in</h1>
+    <p id="gSub">The original layer is selected on the canvas.</p>
+    <div class="file"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" stroke-width="1.8"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="#0a84ff" stroke="none"/></svg>
+      <div><b id="gFile">file.mp4</b><div class="sub">Selected in the folder that just opened</div></div></div>
+    <ol>
+      <li>Drag the file from the folder onto the Figma canvas.</li>
+      <li>That's it. The plugin moves it into place, matches its size, crop and order, and removes the old layer.</li>
+    </ol>
+    <div class="row" style="margin-top:auto">
+      <button class="secondary" id="gSkip">Skip</button>
+      <button class="secondary" id="gUse">Use selected layer</button>
+    </div>
+  </section>
+
+<script>
+var PORT = 47821;
+var BASE = 'http://localhost:' + PORT;
+var ws = null, token = null, paired = false, retry = 0, fileInfo = null;
+var $ = function (id) { return document.getElementById(id); };
+function show(id) { ['pair', 'search', 'main'].forEach(function (s) { $(s).classList.toggle('on', s === id); }); }
+function post(msg) { parent.postMessage({ pluginMessage: msg }, '*'); }
+function log(text) {
+  var d = document.createElement('div'); d.textContent = text;
+  $('log').insertBefore(d, $('log').firstChild);
+  while ($('log').children.length > 30) $('log').removeChild($('log').lastChild);
+}
+function activity(title, detail, frac) {
+  $('activity').textContent = title; $('detail').textContent = detail || '';
+  $('bar').style.width = frac == null ? '0' : Math.round(frac * 100) + '%';
+}
+
+// ---- pairing code boxes
+(function () {
+  for (var i = 0; i < 6; i++) {
+    var inp = document.createElement('input'); inp.maxLength = 1; inp.inputMode = 'numeric';
+    inp.addEventListener('input', function (e) {
+      e.target.value = e.target.value.replace(/\D/g, '');
+      if (e.target.value && e.target.nextSibling) e.target.nextSibling.focus();
+      $('pairBtn').disabled = codeValue().length !== 6;
+    });
+    inp.addEventListener('keydown', function (e) {
+      if (e.key === 'Backspace' && !e.target.value && e.target.previousSibling) e.target.previousSibling.focus();
+      if (e.key === 'Enter' && codeValue().length === 6) $('pairBtn').click();
+    });
+    inp.addEventListener('paste', function (e) {
+      var t = (e.clipboardData.getData('text') || '').replace(/\D/g, '').slice(0, 6);
+      var boxes = $('code').children; for (var k = 0; k < 6; k++) boxes[k].value = t[k] || '';
+      $('pairBtn').disabled = t.length !== 6; e.preventDefault();
+    });
+    $('code').appendChild(inp);
+  }
+})();
+function codeValue() { return Array.prototype.map.call($('code').children, function (i) { return i.value; }).join(''); }
+$('pairBtn').onclick = function () { $('pairMsg').textContent = 'Connecting…'; connect(null, codeValue()); };
+$('repair').onclick = function () { token = null; post({ type: 'storage-set', key: 'smo-token', value: null }); if (ws) ws.close(); show('pair'); };
+
+// ---- WebSocket bridge
+function connect(tok, code) {
+  if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} }
+  var url = 'ws://localhost:' + PORT + '/plugin' + (tok ? '?token=' + encodeURIComponent(tok) : '?pair=' + encodeURIComponent(code));
+  try { ws = new WebSocket(url); } catch (e) { return scheduleRetry(); }
+  ws.onopen = function () { retry = 0; post({ type: 'rpc', id: '_hello', method: 'hello' }); };
+  ws.onmessage = function (ev) {
+    var m = JSON.parse(ev.data);
+    if (m.type === 'paired') {
+      token = m.token; paired = true;
+      post({ type: 'storage-set', key: 'smo-token', value: token });
+      show('main'); log('Paired with the app');
+      return;
+    }
+    if (m.type === 'denied') { $('pairMsg').textContent = m.message || 'That code didn’t match. Check the app and try again.'; token = null; show('pair'); return; }
+    if (m.type === 'status') { activity(m.title, m.detail, m.progress); if (m.log) log(m.log); return; }
+    if (m.method) { // command from the app
+      if (m.method !== 'hello') activity(LABELS[m.method] || 'Working…', '', 0);
+      post({ type: 'rpc', id: m.id, method: m.method, params: m.params });
+    }
+  };
+  ws.onclose = function (ev) {
+    if (ev.code === 4001) { token = null; post({ type: 'storage-set', key: 'smo-token', value: null }); show('pair');
+      $('pairMsg').textContent = 'The app asked to pair again.'; return; }
+    if (token) { show('search'); scheduleRetry(); }
+  };
+  ws.onerror = function () { if (!token) $('pairMsg').textContent = 'Couldn’t reach the app. Is it open?'; };
+}
+var LABELS = { inventory: 'Reading the deck', swapImages: 'Swapping images', removeItems: 'Removing layers',
+  applySpacing: 'Evening out spacing', alignmentScan: 'Checking alignment', applyMoves: 'Aligning layers', placeVideo: 'Replacing videos', revert: 'Undoing changes', saveVersion: 'Saving a version', focus: 'Showing layer' };
+function scheduleRetry() { retry = Math.min(retry + 1, 6); setTimeout(function () { if (token) connect(token); }, 500 * retry); }
+function send(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+
+// ---- messages from the plugin main thread
+window.onmessage = async function (ev) {
+  var msg = ev.data && ev.data.pluginMessage;
+  if (!msg) return;
+  if (msg.type === 'storage' && msg.key === 'smo-token') {
+    token = msg.value || null;
+    if (token) { show('search'); connect(token); } else { show('pair'); }
+  } else if (msg.type === 'rpc-result') {
+    if (msg.id === '_hello') {
+      fileInfo = msg.result;
+      if (fileInfo) { $('deck').textContent = fileInfo.name; show('main'); }
+      send({ type: 'hello', info: fileInfo });
+      return;
+    }
+    send({ id: msg.id, result: msg.result, error: msg.error });
+    activity(msg.error ? 'Something went wrong' : 'Done', msg.error || 'Waiting for the next step.', msg.error ? 0 : 1);
+    if (msg.error) log(msg.error);
+  } else if (msg.type === 'rpc-progress') {
+    send({ id: msg.id, progress: msg.data });
+    if (msg.data) activity(msg.data.label || 'Working…', '', msg.data.total ? msg.data.done / msg.data.total : null);
+  } else if (msg.type === 'call') {
+    try {
+      var result = await calls[msg.method](msg.params);
+      post({ type: 'reply', id: msg.id, result: result });
+    } catch (e) { post({ type: 'reply', id: msg.id, error: String(e.message || e) }); }
+  } else if (msg.type === 'guided-show') {
+    $('gStep').textContent = (msg.kind === 'gif' ? 'GIF ' : 'Video ') + (msg.index || 1) + ' of ' + (msg.total || 1) + (msg.slideIndex ? ' · Slide ' + msg.slideIndex : '');
+    $('gFile').textContent = msg.fileName; $('gSub').textContent = '“' + msg.layerName + '” is selected on the canvas.';
+    $('guide').classList.add('on');
+  } else if (msg.type === 'guided-hide') {
+    $('guide').classList.remove('on');
+  }
+};
+$('gSkip').onclick = function () { post({ type: 'guided-skip' }); };
+$('gUse').onclick = function () { post({ type: 'guided-use-selection' }); };
+
+// ---- byte transfer with the app (plugin main thread has no network)
+var calls = {
+  upload: async function (p) {
+    var r = await fetch(BASE + '/blob/' + p.hash + '?token=' + encodeURIComponent(token), { method: 'POST', body: p.bytes,
+      headers: { 'Content-Type': 'application/octet-stream' } });
+    if (!r.ok) throw new Error('Upload failed (' + r.status + ')');
+    return true;
+  },
+  download: async function (p) {
+    var url = p.url.indexOf('http') === 0 ? p.url : BASE + p.url;
+    var r = await fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'token=' + encodeURIComponent(token));
+    if (!r.ok) throw new Error('Download failed (' + r.status + ')');
+    return new Uint8Array(await r.arrayBuffer());
+  }
+};
+
+// Static previews for the user guide (never used inside Figma): ui.html#pair, #connected, #guide
+if (location.hash && window.parent === window) {
+  var h = location.hash.slice(1);
+  if (h === 'pair') show('pair');
+  if (h === 'connected' || h === 'guide') { show('main'); $('deck').textContent = 'Spring Pitch Deck'; activity('Swapping images', 'Swapping image 14 of 38', 0.37);
+    ['Paired with the app', 'Deck read: 42 slides', 'Saved a version in Figma history'].forEach(log); }
+  if (h === 'guide') { window.onmessage({ data: { pluginMessage: { type: 'guided-show', fileName: 'Slide12_Hero Spot_efa97b.mp4', layerName: 'Hero Spot', slideIndex: 12, index: 2, total: 7, kind: 'video' } } }); }
+} else {
+  post({ type: 'storage-get', key: 'smo-token' });
+}
+</script>
+</body>
+</html>

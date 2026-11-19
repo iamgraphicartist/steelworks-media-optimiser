@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steelworks Media Optimiser</title>
+<link rel="icon" href="icon.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="brand-mark" src="icon.png" alt="">
+      <div><div class="brand-name">Media Optimiser</div><div class="brand-sub">Steelworks</div></div>
+    </div>
+    <ul class="steps" id="steps"></ul>
+    <div class="side-foot">
+      <div class="savings" id="savings"></div>
+      <button class="side-btn" id="openSettings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="content" id="content"></div>
+    <footer class="statusbar" id="status"></footer>
+  </main>
+</div>
+
+<div class="scrim" id="settings">
+  <div class="sheet">
+    <h2>Settings</h2>
+    <p class="muted small" style="margin:0 0 18px">These are only stored on this computer; the Figma secret goes in the system keychain. If someone at Steelworks has already set these up, ask them for the values. Otherwise click <span class="info-inline">i</span> next to each one.</p>
+
+    <div class="field">
+      <label>Figma client ID <button class="info" data-help="h_figma" aria-label="How to get this">i</button></label>
+      <input class="input" id="s_figma_client_id" autocomplete="off" spellcheck="false" placeholder="e.g. AbC123dEf456…">
+      <div class="help" id="h_figma">
+        <p>The client ID and secret come from a Figma <b>OAuth app</b>. One app is enough for the whole studio, so whoever makes it can share both values.</p>
+        <ol>
+          <li>Open the Figma developer page and sign in. <button class="btn mini" data-url="https://www.figma.com/developers/apps">Open Figma developers ↗</button></li>
+          <li>Click <b>Create a new app</b> and name it <i>Steelworks Media Optimiser</i>.</li>
+          <li>Under <b>Callback URL</b>, add this address exactly:<div class="copyrow"><code class="redirect" data-provider="figma"></code><button class="btn mini secondary" data-copy="figma">Copy</button></div></li>
+          <li>Under <b>Scopes</b>, tick <code>current_user:read</code>, <code>file_content:read</code> and <code>file_metadata:read</code>. All three are read-only; the plugin makes the changes.</li>
+          <li>Click <b>Save</b>, then copy the <b>Client ID</b> into this field and the <b>Client secret</b> into the next one.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Figma client secret <button class="info" data-help="h_secret" aria-label="How to get this">i</button></label>
+      <input class="input" id="s_figma_client_secret" type="password" autocomplete="off" placeholder="Leave empty to keep the current one">
+      <div class="help" id="h_secret">
+        <p>Shown on the same Figma app page as the client ID (see the steps above). Figma only shows it in full once. If nobody saved it, click <b>Regenerate secret</b> on that page and share the new one with the studio.</p>
+        <p>It's stored in Windows' protected storage or the macOS Keychain, never in a plain file.</p>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Dropbox app key <button class="info" data-help="h_dropbox" aria-label="How to get this">i</button></label>
+      <input class="input" id="s_dropbox_app_key" autocomplete="off" spellcheck="false" placeholder="e.g. a1b2c3d4e5f6g7h">
+      <div class="help" id="h_dropbox">
+        <p>The app key comes from a Dropbox <b>app</b>. One is enough for the whole studio. No secret is needed: each person signs in with their own Steelworks account.</p>
+        <ol>
+          <li>Open the Dropbox App Console and sign in with a Steelworks account. <button class="btn mini" data-url="https://www.dropbox.com/developers/apps">Open Dropbox App Console ↗</button></li>
+          <li>Click <b>Create app</b>, then choose <b>Scoped access</b> and <b>Full Dropbox</b>. Name it <i>Steelworks Media Optimiser</i>.</li>
+          <li>On the <b>Permissions</b> tab, tick <code>account_info.read</code>, <code>files.metadata.read</code>, <code>files.content.read</code> and <code>sharing.read</code>, then click <b>Submit</b>.</li>
+          <li>On the <b>Settings</b> tab, under <b>Redirect URIs</b>, add:<div class="copyrow"><code class="redirect" data-provider="dropbox"></code><button class="btn mini secondary" data-copy="dropbox">Copy</button></div></li>
+          <li>On the same tab, set <b>Allow public clients (Implicit Grant &amp; PKCE)</b> to <b>Allow</b>.</li>
+          <li>Copy the <b>App key</b> from the top of the Settings tab into this field. You don't need the app secret.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Dropbox folder on this computer <span class="opt">optional</span> <button class="info" data-help="h_local" aria-label="How to find this">i</button></label>
+      <div class="input-row"><input class="input" id="s_local_dropbox_root" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="folder" data-target="s_local_dropbox_root">Choose…</button></div>
+      <div class="help" id="h_local">
+        <p>Where the Dropbox desktop app keeps your synced files. If a video is already synced here, the app checks it straight away instead of downloading it, which makes matching much faster.</p>
+        <ol>
+          <li>Usually it's found automatically. If the field shows a grey <b>Found automatically</b> path, leave it empty.</li>
+          <li>To check: click the Dropbox icon in the taskbar (Windows) or menu bar (Mac), then your profile picture, then <b>Preferences › Sync</b>. The path under <b>Dropbox folder location</b> is the one you want.</li>
+          <li>Typical locations: <code>E:\Steelworks Dropbox</code> on Windows, or <code>~/Library/CloudStorage/Dropbox-Steelworks</code> on a Mac.</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>ffmpeg <span class="opt">optional</span> <button class="info" data-help="h_ffmpeg" aria-label="How to get this">i</button></label>
+      <div class="input-row"><input class="input" id="s_ffmpeg" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="file" data-target="s_ffmpeg">Choose…</button></div>
+      <div class="help" id="h_ffmpeg">
+        <p>ffmpeg is the free tool that compresses videos and turns GIFs into MP4s. The Windows installer already includes it, so leave this empty unless the Connect page says <b>Missing</b>.</p>
+        <ol>
+          <li><b>Mac:</b> install Homebrew if you don't have it, then run <code>brew install ffmpeg</code> in Terminal. <button class="btn mini" data-url="https://brew.sh">Open brew.sh ↗</button></li>
+          <li><b>Windows:</b> run <code>winget install Gyan.FFmpeg</code> in PowerShell, or download a build. <button class="btn mini" data-url="https://www.gyan.dev/ffmpeg/builds/">Open ffmpeg builds ↗</button></li>
+          <li>Restart the app. If it still isn't found, click <b>Choose…</b> and select the <code>ffmpeg</code> program (<code>ffmpeg.exe</code> on Windows). <code>ffprobe</code> must be in the same folder.</li>
+        </ol>
+      </div>
+    </div>
+    <p class="muted small" id="s_info"></p>
+    <div class="actions"><button class="btn secondary" id="s_forget">Unpair Figma plugins</button><span class="spacer"></span><button class="btn secondary" id="s_cancel">Cancel</button><button class="btn" id="s_save">Save</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

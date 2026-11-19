@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+vendor/
+build.log
+samples/images/
+samples/dropbox/
+samples/deck.json
+steelworks.config.json
+.DS_Store
+!plugin/dist/

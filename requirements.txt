@@ -1,0 +1,7 @@
+aiohttp>=3.9,<4
+requests>=2.31,<3
+Pillow>=10.3
+pywebview>=5.1
+pyinstaller>=6.6
+pyobjc-framework-WebKit>=10; sys_platform == "darwin"
+pythonnet>=3.0; sys_platform == "win32"
