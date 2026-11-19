@@ -8,9 +8,9 @@ It reads every slide, then, step by step and with your approval:
 |---|---|
 | **Review** | Lists every image, GIF and video with file size, pixel size and on-slide size (crop included), plus hidden, switched-off, off-slide and fully covered media, and uneven thumbnail grids. |
 | **Clean up** | Removes media nobody can see, after you tick through a review list. |
-| **Images** | Resizes to 1.5× the on-slide size (max 2560 px, never upscaled), saves JPEG q86, or WebP q88 when the image really has transparency, and only keeps a result that is at least 30% smaller. Swaps it in place, keeping the scale mode and crop. |
+| **Images** | Resizes to 2× the on-slide size, so images stay sharp on high-res screens (max 4096 px, never upscaled). Photos become JPEG 92 with full colour detail, transparent images WebP, and logos or graphics stay lossless. Every result is compared with the original (PSNR ≥ 40 dB, i.e. no visible difference) and only kept if it looks the same **and** is at least 30% smaller. Crops and scale modes stay exactly the same. |
 | **Videos & GIFs** | Finds each original video in the Steelworks Dropbox (team folders, shared folders, files that aren't synced), proves it's the exact file by SHA-1, compresses it (1080p, H.264 CRF 22, AAC 128k, faststart) and puts it back. GIFs become silent, looping, autoplaying MP4s. |
-| **Spacing** | Sets thumbnail grids to 16 px gaps, keeping the outer edges. Collages and overlapping layouts are skipped. |
+| **Spacing** | Sets thumbnail grids to even gaps (12 px by default; change it in Settings), keeping the outer edges. Collages and overlapping layouts are skipped. |
 | **Alignment** | Puts repeating headers and footers (logos, titles, page numbers) in the same place on every slide, and snaps text and layers that sit a few pixels off a margin or column. |
 | **Report** | Before and after sizes, an HTML report, a **replace list** (CSV) for anything that needs a person, and an **undo log**. |
 
@@ -23,8 +23,8 @@ Get the latest version from **[Releases](../../releases/latest)**:
 | Your computer | File |
 |---|---|
 | Windows 10 / 11 | `Steelworks-Media-Optimiser-…-Windows-Setup.exe` |
-| Mac with Apple silicon (M1–M4) | `Steelworks-Media-Optimiser-…-macOS-arm64.dmg` |
-| Intel Mac | `Steelworks-Media-Optimiser-…-macOS-x86_64.dmg` |
+| Any Mac | `Steelworks-Media-Optimiser-…-macOS-x86_64.dmg` (runs on M1–M4 Macs through Rosetta; macOS offers to set that up the first time) |
+| Mac with Apple silicon, native | `Steelworks-Media-Optimiser-…-macOS-arm64.dmg`, when GitHub had capacity to build it |
 | Figma plugin (everyone) | `Steelworks-Media-Optimiser-Figma-Plugin-….zip` |
 
 Then follow the **[user guide](docs/USER_GUIDE.md)**: it walks through every screen.
@@ -34,8 +34,8 @@ Then follow the **[user guide](docs/USER_GUIDE.md)**: it walks through every scr
 | | |
 |---|---|
 | **Connect:** the only setup: import the plugin once, then click Allow<br>![Connect](docs/images/01b-connect-allow.png) | **Review:** what makes the deck heavy, slide by slide<br>![Review](docs/images/03-review.png) |
-| **Clean up:** hidden, switched-off and covered media<br>![Clean up](docs/images/04-cleanup.png) | **Images:** resized to 1.5× display size<br>![Images](docs/images/05-images.png) |
-| **Videos & GIFs:** found in Dropbox, proven by SHA-1, compressed<br>![Videos](docs/images/06-videos.png) | **Spacing:** 16 px thumbnail grids<br>![Spacing](docs/images/07-spacing.png) |
+| **Clean up:** hidden, switched-off and covered media<br>![Clean up](docs/images/04-cleanup.png) | **Images:** sharp at 2× display size, checked for no visible change<br>![Images](docs/images/05-images.png) |
+| **Videos & GIFs:** found in Dropbox, proven by SHA-1, compressed<br>![Videos](docs/images/06-videos.png) | **Spacing:** even 12 px thumbnail grids<br>![Spacing](docs/images/07-spacing.png) |
 | **Alignment:** headers, footers and text on the layout<br>![Alignment](docs/images/08-alignment.png) | **Report:** before and after, replace list, undo<br>![Report](docs/images/09-report.png) |
 | **Settings:** found automatically, with an ⓘ on every field<br>![Settings help](docs/images/12-settings.png) | **Dark mode** follows the system<br>![Dark](docs/images/10-report-dark.png) |
 
@@ -46,6 +46,19 @@ Then follow the **[user guide](docs/USER_GUIDE.md)**: it walks through every scr
 | ![Pair](docs/images/plugin-pair.png) | ![Connected](docs/images/plugin-connected.png) | ![Guide](docs/images/plugin-guide.png) |
 
 ---
+
+## Quality comes first
+
+Nothing the tool produces should look worse than the original:
+
+| | Best quality (default) | Smaller files (Settings) |
+|---|---|---|
+| Images | 2× on-slide size, up to 4096 px; JPEG 92 at 4:4:4, WebP 95, graphics lossless | 1.5×, up to 2560 px; JPEG 86, WebP 88 |
+| Videos | H.264 CRF 18, 2× on-slide size (at least 1080p, up to 4K), AAC 192k | CRF 22, 1080p, AAC 128k |
+| GIFs | Silent looping MP4; re-encoded at higher quality until it matches | the same, CRF 20 |
+| Check | Every result is decoded and compared with the original (images ≥ 40 dB PSNR, video ≥ 38 dB). If it would look worse, the original is kept. | ≥ 36 dB / 34 dB |
+
+Results are never upscaled, and a file that wouldn't get meaningfully smaller is left alone.
 
 ## How it fits together
 
@@ -89,9 +102,9 @@ GIFs follow the same path, set to autoplay, loop, muted and no controls. Where t
 
 ## Install (everyone in the studio)
 
-1. Download and run the installer from **[Releases](../../releases/latest)**: Windows `.exe`, or Mac `.dmg` (arm64 for Apple silicon, x86_64 for Intel). ffmpeg is included. The Mac app isn't signed by Apple yet: the first time, right-click it, choose **Open**, then **Open** again.
-2. Have **Dropbox for desktop** installed and signed in. The app uses that folder automatically, with no keys and no sign-in. Online-only files are downloaded by Dropbox when the app reads them.
-3. In the app's **Connect** page, click **Show plugin file**. In Figma: **Plugins › Development › Import plugin from manifest…** (first time only).
+1. Download and run the installer from **[Releases](../../releases/latest)**: Windows `.exe`, or the Mac `.dmg`. Video tools (ffmpeg) are built in on both, so there's nothing else to install. The Mac app isn't signed by Apple yet: the first time, right-click it, choose **Open**, then **Open** again.
+2. On the **Connect** page, click **Sign in with Dropbox** (recommended: most project files are only online). If the Dropbox desktop app is installed, files already synced to the computer are used first because it's faster. Either way, everything is found.
+3. Click **Add to Figma**. The app adds the plugin to the Figma desktop app for you (Figma restarts for a moment if it's open). If Figma was closed when the app first started, this already happened by itself.
 4. Run the plugin in a deck, click **Connect**, then click **Allow** in the app.
 
 No developer accounts, keys or codes are needed for everyday use. Later, an admin can publish the plugin privately to the Steelworks Figma organisation (**Plugins › Manage plugins › Publish**, *private*), which removes step 3 for everyone.
@@ -181,7 +194,9 @@ python scripts/run_js_tests.py
 ```
 
 * `tests/test_matching_hashing.py`: name normalisation, fuzzy scoring and ranking, SHA-1 helpers, `find_source` (the hash decides, not the name; mismatched downloads are deleted; failing sources don't stop others; cache).
-* `tests/test_compression.py`: the 1.5× / 2560 / no-upscale maths, JPEG vs WebP by real alpha, the 30% rule, ICC kept, EXIF-rotated and animated inputs, and real ffmpeg runs (1080p, portrait, no upscale, AAC, faststart `moov` before `mdat`, GIF to silent even-sized MP4).
+* `tests/test_compression.py`: both quality presets (2× / 4096 and 1.5× / 2560), never upscaling, JPEG 4:4:4 vs WebP by real alpha, lossless graphics, the PSNR quality gate, the 30% rule, ICC kept, upright copies of EXIF-rotated photos, animated inputs, and real ffmpeg runs (4K kept when shown full-screen, 1080p when small, portrait, AAC, faststart, GIF to silent MP4, measured PSNR).
+* `tests/test_figma_desktop.py`: adding the plugin to Figma desktop's settings (other plugins and settings untouched, ids unique, stale entries replaced, backup kept).
+* `tests/test_export.py`: the *files to replace* folder (named by slide, list and instructions, only what still needs a person).
 * `tests/test_bridge_dropbox.py`: pairing codes are single-use, stale tokens, RPC with progress, blob hash check, path traversal, DNS-rebinding guard, Private Network Access preflight, the Dropbox team-root header, unmounted shared folders, stream-hashing, preferring a synced local copy, DPAPI at rest.
 * `tests/js/core.test.html`: plugin logic. Required size for FILL, FIT, CROP and TILE; format and opacity sniffing; coverage (stacked covers, rotation, clipping, rounded corners, slivers, off-slide); grid detection and the 16 px plan; alignment guides, header and footer consensus, tolerances.
 
@@ -189,11 +204,11 @@ python scripts/run_js_tests.py
 
 | Platform | Command | Output (in `dist/`) |
 |---|---|---|
-| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` | `Steelworks-Media-Optimiser-1.0.4-Windows-Setup.exe` |
-| macOS | `./scripts/build_macos.sh` (run on a Mac) | `Steelworks-Media-Optimiser-1.0.4-macOS-<arch>.dmg` |
-| Both | `.github/workflows/build.yml`: push a tag like `v1.0.4`, or Actions › *Build installers* › Run | Windows, macOS arm64 and macOS x86_64, published as a Release when tagged |
+| Windows | `powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1` | `Steelworks-Media-Optimiser-1.0.5-Windows-Setup.exe` |
+| macOS | `./scripts/build_macos.sh` (run on a Mac) | `Steelworks-Media-Optimiser-1.0.5-macOS-<arch>.dmg` |
+| Both | `.github/workflows/build.yml`: push a tag like `v1.0.5`, or Actions › *Build installers* › Run | Windows, macOS arm64 and macOS x86_64, published as a Release when tagged |
 
-Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.4.zip`. The build runs all tests first (`--skip-tests` skips them). On Windows it bundles ffmpeg from your PATH (`--no-ffmpeg` to skip). On macOS it bundles ffmpeg only if you put static `ffmpeg`/`ffprobe` builds in `vendor/ffmpeg/`, because Homebrew's build isn't self-contained. To sign and notarise on macOS, set `SMO_SIGN_IDENTITY="Developer ID Application: …"` and `SMO_NOTARY_PROFILE=<notarytool keychain profile>`. Bundled ffmpeg is GPL-licensed, which is fine for internal use. Check before distributing outside the studio.
+Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.5.zip`. The build runs all tests first (`--skip-tests` skips them). On Windows it bundles ffmpeg from your PATH (`--no-ffmpeg` to skip). On macOS it bundles ffmpeg only if you put static `ffmpeg`/`ffprobe` builds in `vendor/ffmpeg/`, because Homebrew's build isn't self-contained. To sign and notarise on macOS, set `SMO_SIGN_IDENTITY="Developer ID Application: …"` and `SMO_NOTARY_PROFILE=<notarytool keychain profile>`. Bundled ffmpeg is GPL-licensed, which is fine for internal use. Check before distributing outside the studio.
 
 ## Security
 
@@ -209,7 +224,7 @@ Both also write `Steelworks-Media-Optimiser-Figma-Plugin-1.0.4.zip`. The build r
 | Item | Status |
 |---|---|
 | Figma OAuth sign-in | Optional (deck thumbnails only). Code complete; needs a Figma app registered to test. |
-| Dropbox | Works with no setup through the Dropbox desktop folder (online-only files hydrate on read; check this on a real online-only video). Online search via OAuth is optional, unit-tested against a fake API, and needs the app key. |
+| Dropbox online | The code is complete and unit-tested against a fake Dropbox API. It needs the studio's Dropbox app key (set `DROPBOX_APP_KEY` as a repository variable) and one real sign-in to confirm. The local Dropbox folder works with no setup. |
 | Plugin inside real Figma | Built and exercised against the mock API. Import it as a development plugin and run it on a copy of a deck first. |
 | Automatic video path (`createVideoAsync`) | Used only if the Figma build exposes it; otherwise the guided drag-in path runs (the path verified in the manual run). Confirm which one your Figma uses. |
 | Video playback settings | Copied when Figma exposes them to plugins; otherwise flagged as *Check playback* in the replace list. |

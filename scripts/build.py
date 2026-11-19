@@ -19,7 +19,7 @@ import zipfile
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 NAME = "Steelworks Media Optimiser"
 SLUG = "Steelworks-Media-Optimiser"
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 DIST = os.path.join(ROOT, "dist")
 import tempfile
 # Short path: Windows resource stamping (icon/version) fails on very long paths.
@@ -108,7 +108,18 @@ def mac_dmg():
     os.symlink("/Applications", os.path.join(stage, "Applications"))
     if os.path.exists(dmg):
         os.remove(dmg)
-    run(["hdiutil", "create", "-volname", NAME, "-srcfolder", stage, "-ov", "-format", "UDZO", dmg])
+    # hdiutil fails intermittently on CI Macs ("Resource busy"): retry a few times.
+    import time
+    for attempt in range(1, 6):
+        try:
+            run(["hdiutil", "create", "-volname", NAME, "-srcfolder", stage, "-ov", "-fs", "HFS+", "-format", "UDZO", dmg])
+            break
+        except subprocess.CalledProcessError:
+            if attempt == 5:
+                raise
+            print(f"hdiutil failed (attempt {attempt}), retrying...", flush=True)
+            subprocess.run(["hdiutil", "detach", "-force", f"/Volumes/{NAME}"], capture_output=True)
+            time.sleep(10 * attempt)
     if ident:
         run(["codesign", "-s", ident, "--timestamp", dmg])
         if os.environ.get("SMO_NOTARY_PROFILE"):

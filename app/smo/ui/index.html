@@ -32,6 +32,20 @@
     <p class="muted small" style="margin:0 0 18px">Everything here is found automatically. You normally don't need to change anything.</p>
 
     <div class="field">
+      <label>Quality</label>
+      <select class="input" id="s_quality">
+        <option value="best">Best quality: no visible difference (recommended)</option>
+        <option value="smaller">Smaller files: a little softer on big screens</option>
+      </select>
+      <div class="muted small">Every image, GIF and video is checked against the original after compressing. If it would look worse, the original is kept.</div>
+    </div>
+
+    <div class="field">
+      <label>Gap between thumbnails</label>
+      <div class="input-row" style="max-width:200px"><input class="input" id="s_thumbnail_gap" type="number" min="0" max="200" step="1"><span class="muted" style="align-self:center">px</span></div>
+    </div>
+
+    <div class="field">
       <label>Dropbox folder on this computer <span class="opt">optional</span> <button class="info" data-help="h_local" aria-label="How to find this">i</button></label>
       <div class="input-row"><input class="input" id="s_local_dropbox_root" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="folder" data-target="s_local_dropbox_root">Choose…</button></div>
       <div class="help" id="h_local">
@@ -44,21 +58,9 @@
       </div>
     </div>
 
-    <div class="field">
-      <label>ffmpeg <span class="opt">optional</span> <button class="info" data-help="h_ffmpeg" aria-label="How to get this">i</button></label>
-      <div class="input-row"><input class="input" id="s_ffmpeg" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="file" data-target="s_ffmpeg">Choose…</button></div>
-      <div class="help" id="h_ffmpeg">
-        <p>ffmpeg is the free tool that compresses videos and turns GIFs into MP4s. The Windows installer already includes it, so leave this empty unless the Connect page says <b>Missing</b>.</p>
-        <ol>
-          <li><b>Mac:</b> install Homebrew if you don't have it, then run <code>brew install ffmpeg</code> in Terminal. <button class="btn mini" data-url="https://brew.sh">Open brew.sh ↗</button></li>
-          <li><b>Windows:</b> run <code>winget install Gyan.FFmpeg</code> in PowerShell, or download a build. <button class="btn mini" data-url="https://www.gyan.dev/ffmpeg/builds/">Open ffmpeg builds ↗</button></li>
-          <li>Restart the app. If it still isn't found, click <b>Choose…</b> and select the <code>ffmpeg</code> program (<code>ffmpeg.exe</code> on Windows). <code>ffprobe</code> must be in the same folder.</li>
-        </ol>
-      </div>
-    </div>
     <details class="advanced">
       <summary>Advanced: keys for IT <span class="opt">(not needed for everyday use)</span></summary>
-      <p class="muted small" style="margin:10px 0 14px">Only needed to sign in to Dropbox online (to search folders that aren't in your Dropbox folder) or to show deck thumbnails. Installers from GitHub can come with these filled in. Click <span class="info-inline">i</span> for how to get each one.</p>
+      <p class="muted small" style="margin:10px 0 14px">Only for unusual set-ups. Everything here is normally filled in or found automatically. Installers from GitHub can come with these filled in. Click <span class="info-inline">i</span> for how to get each one.</p>
     <div class="field">
       <label>Figma client ID <button class="info" data-help="h_figma" aria-label="How to get this">i</button></label>
       <input class="input" id="s_figma_client_id" autocomplete="off" spellcheck="false" placeholder="e.g. AbC123dEf456…">
@@ -99,6 +101,18 @@
       </div>
     </div>
 
+    <div class="field">
+      <label>ffmpeg <span class="opt">optional</span> <button class="info" data-help="h_ffmpeg" aria-label="How to get this">i</button></label>
+      <div class="input-row"><input class="input" id="s_ffmpeg" autocomplete="off" spellcheck="false"><button class="btn secondary" data-pick="file" data-target="s_ffmpeg">Choose…</button></div>
+      <div class="help" id="h_ffmpeg">
+        <p>ffmpeg is the free tool that compresses videos and turns GIFs into MP4s. The Windows installer already includes it, so leave this empty unless the Connect page says <b>Missing</b>.</p>
+        <ol>
+          <li><b>Mac:</b> install Homebrew if you don't have it, then run <code>brew install ffmpeg</code> in Terminal. <button class="btn mini" data-url="https://brew.sh">Open brew.sh ↗</button></li>
+          <li><b>Windows:</b> run <code>winget install Gyan.FFmpeg</code> in PowerShell, or download a build. <button class="btn mini" data-url="https://www.gyan.dev/ffmpeg/builds/">Open ffmpeg builds ↗</button></li>
+          <li>Restart the app. If it still isn't found, click <b>Choose…</b> and select the <code>ffmpeg</code> program (<code>ffmpeg.exe</code> on Windows). <code>ffprobe</code> must be in the same folder.</li>
+        </ol>
+      </div>
+    </div>
     </details>
     <p class="muted small" id="s_info"></p>
     <div class="actions"><button class="btn secondary" id="s_forget">Unpair Figma plugins</button><span class="spacer"></span><button class="btn secondary" id="s_cancel">Cancel</button><button class="btn" id="s_save">Save</button></div>

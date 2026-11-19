@@ -114,23 +114,28 @@ T('invert round-trips', function () {
 
 // ---- grids
 function cells(pos, w, h) { return pos.map(function (p, i) { return { id: 'n' + i, x: p[0], y: p[1], w: w, h: h }; }); }
-T('uneven 3x2 grid gets a 16px plan with the same outer edges', function () {
+T('uneven 3x2 grid gets a 12px plan with the same outer edges', function () {
   var g = C.analyseGrid(cells([[0, 0], [512, 0], [1040, 0], [0, 360], [512, 360], [1040, 360]], 500, 340));
   eq([g.cols, g.rows, g.even], [3, 2, false]);
   eq(g.gapsX, [12, 28]); eq(g.gapsY, [20]);
   var xs = g.plan.map(function (p) { return p.x; }), rights = g.plan.map(function (p) { return p.x + p.w; });
   near(Math.min.apply(null, xs), 0); near(Math.max.apply(null, rights), 1540);
   var row0 = g.plan.filter(function (p) { return p.y === 0; }).sort(function (a, b) { return a.x - b.x; });
-  near(row0[1].x - (row0[0].x + row0[0].w), 16); near(row0[2].x - (row0[1].x + row0[1].w), 16);
+  near(row0[1].x - (row0[0].x + row0[0].w), 12); near(row0[2].x - (row0[1].x + row0[1].w), 12);
   near(Math.max.apply(null, g.plan.map(function (p) { return p.y + p.h; })), 700);
 });
 T('already even grid is reported even', function () {
-  var g = C.analyseGrid(cells([[0, 0], [116, 0], [232, 0]], 100, 100));
+  var g = C.analyseGrid(cells([[0, 0], [112, 0], [224, 0]], 100, 100));
   eq(g.even, true);
 });
 T('single row with uneven gaps', function () {
   var g = C.analyseGrid(cells([[0, 0], [110, 0], [240, 0], [350, 0]], 100, 60));
   eq([g.cols, g.rows, g.even], [4, 1, false]);
+});
+T('a custom gap from the app is honoured', function () {
+  var g = C.analyseGrid(cells([[0, 0], [110, 0], [240, 0]], 100, 60), { gap: 20 });
+  var row = g.plan.sort(function (a, b) { return a.x - b.x; });
+  near(row[1].x - (row[0].x + row[0].w), 20);
 });
 T('collage (mixed sizes) is skipped', function () {
   var it = cells([[0, 0], [116, 0], [232, 0]], 100, 100); it[1].w = 160;

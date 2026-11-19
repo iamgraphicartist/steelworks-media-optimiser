@@ -8,18 +8,17 @@ Use this when a Figma Slides deck is slow to open or present. One deck takes abo
 
 ## Install (2 minutes, once)
 
-1. Download the app from the **[latest release](../../../releases/latest)**: the **Windows** `.exe`, or the **Mac** `.dmg` (arm64 for M1–M4 Macs, x86_64 for older Intel Macs). Open it and click through. On a Mac, drag the app into **Applications**. The first time, right-click it and choose **Open**.
-2. Make sure **Dropbox for desktop** is installed and signed in with your Steelworks account. That's how the app finds the original videos; there's nothing else to set up.
+1. Download the app from the **[latest release](../../../releases/latest)**: the **Windows** `.exe` or the **Mac** `.dmg`, then open it and click through. On a Mac, drag the app into **Applications**. The first time, right-click it and choose **Open**. Video tools are built in.
+2. That's it for installing. If Figma was closed, the plugin has already been added to Figma for you.
 
 ## 1 · Connect: the only setup step
 
 ![Connect](images/01-connect.png)
 
-The app finds your Dropbox folder and video tools by itself. You only connect the Figma plugin:
+The video tools are built in. Two things to do, once:
 
-1. Click **Show plugin file**. In the Figma desktop app, choose **Plugins › Development › Import plugin from manifest…** and pick the highlighted file. *(First time only.)*
-2. Open your deck and run **Plugins › Development › Steelworks Media Optimiser**.
-3. Click **Connect** in the plugin, then **Allow** in the app.
+1. **Figma plugin:** click **Add to Figma** if it's there (Figma restarts for a moment; your files are saved automatically). Then open your deck and run **Plugins › Development › Steelworks Media Optimiser**, click **Connect** in the plugin, and **Allow** in the app.
+2. **Dropbox:** click **Sign in with Dropbox** and allow access in your browser. Most project files only live online, so this is how the app finds them. If you also have the Dropbox app, files already on your computer are used first because it's faster.
 
 | In the plugin: click Connect | In the app: click Allow |
 |---|---|
@@ -61,7 +60,7 @@ These layers are invisible but still downloaded: hidden layers, switched-off fil
 
 ![Images](images/05-images.png)
 
-Press **Optimise images**. Each image is shrunk to 1.5× the size it's shown at, which stays sharp on big screens. Images with transparency become WebP and the rest JPEG. A new version is only used if it's at least 30% smaller. Crops, fills and positions don't change.
+Press **Optimise images**. Each image is resized to twice the size it's shown at, so it stays sharp on big, high-resolution screens. Photos become high-quality JPEG, transparent images WebP, and logos or graphics stay lossless. **Every result is compared with the original**: it's only used if it looks the same and is at least 30% smaller. Crops, fills and positions don't change. Photos with a camera rotation tag get an upright copy ready to place by hand (see *Files to replace* below).
 
 ## 6 · Videos & GIFs
 
@@ -80,7 +79,7 @@ Videos marked **Not found** go on the replace list (see Report).
 
 ![Spacing](images/07-spacing.png)
 
-Thumbnail grids with uneven gaps are shown before and after. Applying sets every gap to 16 px and keeps the grid's outer edges where they are. Collages and overlapping layouts are never touched.
+Thumbnail grids with uneven gaps are shown before and after. Applying sets every gap to 12 px (change it in **Settings › Gap between thumbnails**) and keeps the grid's outer edges where they are. Collages and overlapping layouts are never touched.
 
 ## 8 · Alignment
 
@@ -102,6 +101,10 @@ It never moves anything more than 12 px (40 px for headers and footers), so layo
   * **Replace list.csv:** anything that needs a person, such as videos whose original couldn't be found, or *check playback* items.
   * **Undo log.json:** a record of every change.
 * **Undo changes** puts back image swaps, spacing and alignment. Removed layers and replaced videos come back through Figma's **File › Show version history**: pick *Before Media Optimiser…*.
+
+### Files to replace
+
+Anything the app couldn't put into the deck by itself (a video you skipped, a photo with a rotation tag) is listed under **Files to replace by hand**. Click **Save files to replace…** and choose a folder. You get every file **already compressed with no visible quality loss**, named by slide (*Slide 03 – Hero Spot.mp4*), plus a list and simple instructions. Drag each one onto its slide in place of the old layer.
 
 The app follows your system's light or dark mode:
 

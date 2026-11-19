@@ -65,6 +65,7 @@ DEFAULTS: dict[str, Any] = {
     "download_workers": 4,
     "max_candidates_to_hash": 6,
     "max_download_mb": 4000,
+    "thumbnail_gap": 12,
 }
 
 

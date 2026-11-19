@@ -13,6 +13,19 @@ from typing import Callable, Optional
 MAX_SIDE = 1920          # long edge; 1920x1080 for landscape, 1080x1920 for portrait
 CRF = 22
 AUDIO_BITRATE = "128k"
+
+# Quality presets (Settings > Quality). "best" is visually lossless: CRF 18, sized
+# to 2x the on-slide size (at least 1080p, at most 4K, never upscaled), 192k audio,
+# and a measured PSNR check against the source afterwards.
+PRESETS = {
+    "best":    {"crf": 18, "gif_crf": 14, "audio": "192k", "min_side": 1920, "max_side": 3840, "scale": 2.0, "min_psnr": 38.0},
+    "smaller": {"crf": 22, "gif_crf": 20, "audio": "128k", "min_side": 1920, "max_side": 1920, "scale": 1.0, "min_psnr": 34.0},
+}
+
+
+def target_side(preset: str, display_long: float = 0) -> int:
+    P = PRESETS.get(preset, PRESETS["best"])
+    return int(min(P["max_side"], max(P["min_side"], P["scale"] * (display_long or 0))))
 MIN_SAVING = 0.10        # videos already well encoded are left alone
 
 _NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -43,26 +56,45 @@ def find_tool(name: str, configured: Optional[str] = None) -> Optional[str]:
     return None
 
 
-SCALE_FILTER = (f"scale='if(gt(iw,ih),min({MAX_SIDE},iw),-2)':'if(gt(iw,ih),-2,min({MAX_SIDE},ih))'"
-                ":flags=lanczos")
+def scale_filter(side: int = MAX_SIDE) -> str:
+    return (f"scale='if(gt(iw,ih),min({side},iw),-2)':'if(gt(iw,ih),-2,min({side},ih))'"
+            ":flags=lanczos")
 
 
-def compress_args(ffmpeg: str, src: str, out: str) -> list[str]:
+SCALE_FILTER = scale_filter(MAX_SIDE)
+
+
+def compress_args(ffmpeg: str, src: str, out: str, side: int = MAX_SIDE, crf: int = CRF,
+                  audio: str = AUDIO_BITRATE) -> list[str]:
     return [ffmpeg, "-hide_banner", "-nostdin", "-y", "-i", src,
             "-map", "0:v:0", "-map", "0:a:0?",
-            "-vf", SCALE_FILTER + ",format=yuv420p",
-            "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high",
-            "-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ac", "2",
+            "-vf", scale_filter(side) + ",format=yuv420p",
+            "-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-profile:v", "high",
+            "-c:a", "aac", "-b:a", audio, "-ac", "2",
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
 
 
-def gif_args(ffmpeg: str, src: str, out: str) -> list[str]:
+def gif_args(ffmpeg: str, src: str, out: str, side: int = MAX_SIDE, crf: int = CRF) -> list[str]:
     # GIF frame sizes may be odd; H.264 4:2:0 needs even dimensions.
-    vf = (f"scale='min({MAX_SIDE},iw)':'min({MAX_SIDE},ih)':force_original_aspect_ratio=decrease:flags=lanczos,"
+    vf = (f"scale='min({side},iw)':'min({side},ih)':force_original_aspect_ratio=decrease:flags=lanczos,"
           "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p")
     return [ffmpeg, "-hide_banner", "-nostdin", "-y", "-i", src, "-an", "-vf", vf,
-            "-c:v", "libx264", "-preset", "slow", "-crf", str(CRF), "-profile:v", "high",
+            "-c:v", "libx264", "-preset", "slow", "-crf", str(crf), "-profile:v", "high",
             "-movflags", "+faststart", "-progress", "pipe:1", "-nostats", out]
+
+
+def measure_psnr(ffmpeg: str, src: str, out: str) -> Optional[float]:
+    """Average PSNR (dB) of the encode against the source, compared at the encode's size."""
+    import re
+    flt = ("[1:v][0:v]scale2ref=flags=lanczos[ref][enc];"
+           "[enc]format=yuv420p[e];[ref]format=yuv420p[r];[e][r]psnr")
+    r = subprocess.run([ffmpeg, "-hide_banner", "-nostdin", "-i", out, "-i", src, "-filter_complex", flt,
+                        "-an", "-f", "null", "-"], capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", creationflags=_NO_WINDOW)
+    m = re.findall(r"PSNR .*?average:([0-9.]+|inf)", r.stderr)
+    if not m:
+        return None
+    return 99.0 if m[-1] == "inf" else float(m[-1])
 
 
 @dataclass
@@ -72,6 +104,7 @@ class Probe:
     height: int
     has_audio: bool
     codec: str
+    psnr: Optional[float] = None
 
 
 def probe(ffprobe: str, path: str) -> Probe:
@@ -120,16 +153,29 @@ def run(args: list[str], duration: float = 0.0, progress: Optional[Callable[[flo
         progress(1.0)
 
 
-def compress_video(ffmpeg: str, ffprobe: str, src: str, out: str, progress=None, cancelled=None) -> Probe:
+def compress_video(ffmpeg: str, ffprobe: str, src: str, out: str, progress=None, cancelled=None,
+                   preset: str = "best", display_long: float = 0, check: bool = True) -> Probe:
+    P = PRESETS.get(preset, PRESETS["best"])
     info = probe(ffprobe, src)
-    run(compress_args(ffmpeg, src, out), info.duration, progress, cancelled)
+    run(compress_args(ffmpeg, src, out, target_side(preset, display_long), P["crf"], P["audio"]),
+        info.duration, progress, cancelled)
+    info.psnr = measure_psnr(ffmpeg, src, out) if check else None
     return info
 
 
-def gif_to_mp4(ffmpeg: str, ffprobe: str, src: str, out: str, progress=None, cancelled=None) -> Probe:
+def gif_to_mp4(ffmpeg: str, ffprobe: str, src: str, out: str, progress=None, cancelled=None,
+               preset: str = "best", display_long: float = 0, check: bool = True) -> Probe:
+    """GIFs have hard-edged, limited-colour frames; if the first encode isn't
+    visually identical, retry at a higher quality."""
+    P = PRESETS.get(preset, PRESETS["best"])
     try:
         info = probe(ffprobe, src)
     except RuntimeError:
         info = Probe(0, 0, 0, False, "gif")
-    run(gif_args(ffmpeg, src, out), info.duration, progress, cancelled)
+    side = target_side(preset, display_long)
+    for crf in (P["gif_crf"], max(4, P["gif_crf"] - 6), 2):
+        run(gif_args(ffmpeg, src, out, side, crf), info.duration, progress, cancelled)
+        info.psnr = measure_psnr(ffmpeg, src, out) if check else None
+        if info.psnr is None or info.psnr >= P["min_psnr"]:
+            break
     return info

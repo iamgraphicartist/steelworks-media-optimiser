@@ -22,11 +22,16 @@ jobs:
         include:
           - os: windows-latest
             arch: x64
-          - os: macos-latest      # Apple silicon
-            arch: arm64
-          - os: macos-15-intel    # Intel
+            required: true
+          - os: macos-latest      # Apple silicon (bonus: GitHub's arm64 Macs are often short of capacity;
+            arch: arm64           #  the Intel build runs on every Mac through Rosetta)
+            required: false
+          - os: macos-15-intel    # Intel: runs on every Mac
             arch: x86_64
+            required: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ !matrix.required }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,19 +52,28 @@ jobs:
           Copy-Item (Join-Path $bin.DirectoryName 'ffmpeg.exe'), (Join-Path $bin.DirectoryName 'ffprobe.exe') vendor/ffmpeg/
 
       # ---------- macOS
-      - name: ffmpeg (macOS)
+      - name: ffmpeg (macOS) - bundled, so nobody installs anything
         if: runner.os == 'macOS'
         run: |
           brew install ffmpeg   # used by the tests
-          # Self-contained static builds to bundle in the .app (best effort; without them the app uses Homebrew's ffmpeg)
           mkdir -p vendor/ffmpeg
           A=$([ "${{ matrix.arch }}" = "arm64" ] && echo arm64 || echo amd64)
           for t in ffmpeg ffprobe; do
-            curl -fsSL -o "/tmp/$t.zip" "https://ffmpeg.martin-riedl.de/redirect/latest/macos/$A/release/$t.zip" \
-              && unzip -o -q "/tmp/$t.zip" -d vendor/ffmpeg || echo "no static $t available"
+            for i in 1 2 3; do
+              curl -fsSL -o "/tmp/$t.zip" "https://ffmpeg.martin-riedl.de/redirect/latest/macos/$A/release/$t.zip" && break
+              sleep 10
+            done
+            unzip -o -q "/tmp/$t.zip" -d vendor/ffmpeg
           done
-          chmod +x vendor/ffmpeg/* 2>/dev/null || true
-          ls -la vendor/ffmpeg || true
+          chmod +x vendor/ffmpeg/*
+          # Must be self-contained and actually run on this Mac, or no release is made.
+          for t in ffmpeg ffprobe; do
+            vendor/ffmpeg/$t -version | head -1
+            if otool -L vendor/ffmpeg/$t | grep -E "/opt/homebrew|/usr/local/(Cellar|opt|lib)"; then
+              echo "::error::$t depends on Homebrew libraries"; exit 1
+            fi
+          done
+          file vendor/ffmpeg/ffmpeg
 
       - name: Build
         env:
@@ -82,7 +96,8 @@ jobs:
             dist/*.zip
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Publish whatever was built, as long as the required builds (Windows + Intel Mac) succeeded.
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') }}
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -90,6 +105,10 @@ jobs:
         with:
           path: out
           merge-multiple: true
+      - name: Check the required installers are there
+        run: |
+          ls -la out
+          ls out/*Windows-Setup.exe out/*macOS-x86_64.dmg
       - uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -100,8 +119,8 @@ jobs:
           body: |
             ## Download
             * **Windows 10/11**: `Steelworks-Media-Optimiser-…-Windows-Setup.exe`
-            * **Mac with Apple silicon (M1–M4)**: `…-macOS-arm64.dmg`
-            * **Intel Mac**: `…-macOS-x86_64.dmg`
+            * **Any Mac**: `…-macOS-x86_64.dmg` (on M1–M4 Macs it runs through Rosetta; macOS offers to install it the first time)
+            * **Mac with Apple silicon, native**: `…-macOS-arm64.dmg`, when included
             * **Figma plugin**: `…-Figma-Plugin-….zip` (unzip, then in Figma choose Plugins › Development › Import plugin from manifest)
 
             The Mac app isn't signed by Apple yet: the first time, right-click it in Applications, choose **Open**, then **Open** again.

@@ -5,7 +5,7 @@
 var SMOCore = (function () {
   'use strict';
 
-  var GAP = 16;
+  var GAP = 12; // default gap between thumbnails (the app can override it)
   var GRID = 20; // 20x20 sample points per layer for coverage
 
   // ---------------------------------------------------------------- geometry
@@ -394,7 +394,7 @@ if (typeof module !== 'undefined') module.exports = SMOCore;
  * document happens here.
  */
 /* global SMOCore, figma, __html__ */
-var PLUGIN_VERSION = '1.0.4';
+var PLUGIN_VERSION = '1.0.5';
 var MEDIA = { IMAGE: true, VIDEO: true };
 
 figma.showUI(__html__, { width: 340, height: 480, themeColors: true, title: 'Steelworks Media Optimiser' });
@@ -549,7 +549,7 @@ async function inventory(params, rpcId) {
           if (c.isMask) maskSeen = true;
         });
         if (params.grids !== false && node.type !== 'GROUP' && (!node.layoutMode || node.layoutMode === 'NONE')) {
-          findGrids(node, slide, si + 1, grids);
+          findGrids(node, slide, si + 1, grids, params.gap);
         }
       }
     })(slide, slide.clipsContent === false ? [] : [slideBox], null, 1, false);
@@ -611,7 +611,7 @@ async function inventory(params, rpcId) {
   };
 }
 
-function findGrids(container, slide, slideIndex, out) {
+function findGrids(container, slide, slideIndex, out, gap) {
   var kids = container.children.filter(function (c) {
     return c.visible !== false && mediaFills(c).some(function (f) { return f.paint.visible !== false; }) &&
       c.layoutPositioning !== 'ABSOLUTE';
@@ -628,7 +628,7 @@ function findGrids(container, slide, slideIndex, out) {
     if (g.length < 3) return;
     var res = SMOCore.analyseGrid(g.map(function (c) {
       return { id: c.id, x: c.x, y: c.y, w: c.width, h: c.height, rotated: Math.abs(c.rotation || 0) > 0.01 };
-    }));
+    }), { gap: gap == null ? SMOCore.GAP : gap });
     if (!res || res.even) return;
     out.push({ id: container.id + '/' + k, parentId: container.id, parentName: container.name, slideIndex: slideIndex,
       slideId: slide.id, rows: res.rows, cols: res.cols, gapsX: res.gapsX, gapsY: res.gapsY, bounds: res.bounds,

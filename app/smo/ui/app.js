@@ -5,6 +5,7 @@
   var KEY = Q.get('k') || '';
   if (Q.get('theme')) document.documentElement.dataset.theme = Q.get('theme');
   if (Q.get('v') === '1') document.documentElement.classList.add('vibrancy');
+  if (Q.get('settings') || Q.get('still')) document.documentElement.classList.add('still');   // docs screenshots
 
   var S = null;              // engine state
   var view = Q.get('step') || 'connect';
@@ -74,7 +75,7 @@
     { id: 'cleanup', label: 'Clean up', hint: 'Hidden & covered media' },
     { id: 'images', label: 'Images', hint: 'Resize & recompress' },
     { id: 'videos', label: 'Videos & GIFs', hint: 'Compress & replace' },
-    { id: 'spacing', label: 'Spacing', hint: '16 px thumbnail gaps' },
+    { id: 'spacing', label: 'Spacing', hint: 'Even thumbnail gaps' },
     { id: 'align', label: 'Alignment', hint: 'Headers, footers, text' },
     { id: 'report', label: 'Report', hint: 'Before & after' }
   ];
@@ -82,7 +83,7 @@
     if (!S) return false;
     var c = S.connections;
     switch (id) {
-      case 'connect': return c.plugin.connected && (c.dropbox.signedIn || !!c.dropbox.localRoot);
+      case 'connect': return c.plugin.connected && (c.dropbox.signedIn || (!c.dropbox.configured && !!c.dropbox.localRoot));
       case 'deck': return !!(S.deck && S.deck.name);
       case 'review': return S.scan.status === 'done';
       case 'images': return S.images.status === 'done';
@@ -119,6 +120,14 @@
   // ----------------------------------------------------------------- views
   var V = {};
 
+  function addStep(f) {
+    if (f.registered) return '<span class="chip ok">' + ICON.check + ' Added to Figma</span> <span class="muted">It’s under <b>Plugins › Development</b>.</span>';
+    if (!f.installed) return 'Install <a data-url="https://www.figma.com/downloads/">Figma for desktop</a> and open it once. ' +
+      '<span class="muted">(Using Figma in a browser? <a data-a="plugin.reveal">Show plugin file</a> and import it with Plugins › Development › Import plugin from manifest.)</span>';
+    return '<button class="btn mini" data-a="plugin.install">Add to Figma</button> ' +
+      (f.running ? '<span class="muted">Figma restarts for a moment. Your files are saved automatically.</span>' : '<span class="muted">One click, and it’s in Figma.</span>');
+  }
+
   V.connect = function () {
     var c = S.connections, d = c.dropbox, pl = c.plugin, acc = d.account || {};
     function card(icon, cls, title, body, right, done) {
@@ -130,15 +139,26 @@
       '<div class="grow"><b>The Figma plugin wants to connect.</b> Allow it to work on your decks?</div>' +
       '<button class="btn secondary" data-a="plugin.allow" data-p=\'{"allow":false}\'>Don’t allow</button><button class="btn" data-a="plugin.allow">Allow</button></div>' : '';
     var plBody = pl.connected ? 'Connected to <b>' + esc((pl.file || {}).name || 'your deck') + '</b>. Keep the plugin open while you work.'
-      : '<ol class="steps-mini"><li><button class="btn mini" data-a="plugin.reveal">Show plugin file</button> In Figma: <b>Plugins › Development › Import plugin from manifest…</b> and pick that file. <span class="muted">(Only the first time.)</span></li>' +
+      : '<ol class="steps-mini"><li>' + addStep(c.figmaApp || {}) + '</li>' +
         '<li>Open your deck and run <b>Plugins › Development › Steelworks Media Optimiser</b>.</li><li>Click <b>Connect</b> in the plugin, then <b>Allow</b> here.</li></ol>' + allow;
-    // 2 — Dropbox: automatic
-    var dBody, dDone, dRight = '';
-    if (d.signedIn) { dDone = true; dBody = 'Signed in' + (acc.name ? ' as ' + esc(acc.name) : '') + (acc.team ? ' · ' + esc(acc.team) : '') + '. Searches every team and shared folder, synced or not.'; if (!d.demo) dRight = '<button class="btn plain" data-a="dropbox.signout">Sign out</button>'; }
-    else if (d.localRoot) { dDone = true; dBody = 'Using your Dropbox folder on this computer. Files that aren’t synced are downloaded automatically when needed.<div class="mono" style="margin-top:4px">' + esc(d.localRootShort || d.localRoot) + '</div>' +
-      (d.configured ? '<div style="margin-top:6px"><a data-a="dropbox.signin">Also search folders you haven’t added (sign in to Dropbox)</a></div>' : ''); }
-    else if (d.configured) { dBody = 'Sign in so the app can find the original videos.'; dRight = '<button class="btn" data-a="dropbox.signin">Sign in with Dropbox</button>'; }
-    else { dBody = 'Dropbox for desktop wasn’t found on this computer. Install it and sign in with your Steelworks account, or choose your Dropbox folder in <a data-open="settings">Settings</a>.'; dRight = '<button class="btn secondary" data-url="https://www.dropbox.com/install">Get Dropbox</button>'; }
+    // 2 — Dropbox: on this computer and/or online — either is enough
+    var local = d.localRoot
+      ? '<span class="chip ok">' + ICON.check + ' Found</span><div class="mono small" style="margin-top:6px;word-break:break-all">' + esc(d.localRootShort || d.localRoot) + '</div><div class="muted small" style="margin-top:4px">Unsynced files download by themselves when needed.</div>'
+      : '<span class="chip">Not installed</span><div class="muted small" style="margin-top:6px">For people with the Dropbox app. <a data-url="https://www.dropbox.com/install">Get Dropbox</a></div>';
+    var online = d.signedIn
+      ? '<span class="chip ok">' + ICON.check + ' Signed in</span><div class="muted small" style="margin-top:6px">' + esc(acc.name || '') + (acc.team ? ' · ' + esc(acc.team) : '') + '. Searches every team and shared folder.</div>' + (d.demo ? '' : '<a class="small" data-a="dropbox.signout">Sign out</a>')
+      : d.configured
+        ? '<button class="btn mini" data-a="dropbox.signin">Sign in with Dropbox</button><div class="muted small" style="margin-top:6px">No app needed: works in your browser. Searches every team and shared folder.</div>'
+        : '<span class="chip">Not set up yet</span><div class="muted small" style="margin-top:6px">Needs the studio’s Dropbox key (see Settings › Advanced).</div>';
+    // Most project files live online, so sign-in is what counts once the studio key exists.
+    var dDone = d.signedIn || (!d.configured && !!d.localRoot);
+    var hint = d.signedIn ? 'Files already on this computer are used first (faster); everything else comes from Dropbox online.'
+      : d.configured ? '<b>Please sign in online.</b> Most project files aren’t synced to computers, so the app needs to reach Dropbox online. Files that are on this computer are still used first.'
+      : 'The app uses your Dropbox folder on this computer. Online sign-in appears here once the studio’s Dropbox key is added.';
+    var dBody = '<div class="muted small" style="margin-bottom:10px">' + hint + '</div><div class="options">' +
+      '<div class="option' + (d.localRoot ? ' on' : '') + '"><h4>On this computer</h4>' + local + '</div>' +
+      '<div class="option' + (d.signedIn ? ' on' : (d.configured ? ' want' : '')) + '"><h4>Online <span class="chip info" style="margin-left:4px">Recommended</span></h4>' + online + '</div></div>';
+    var dRight = '';
     return '<div class="page"><h1>Connect</h1><p class="lede">' + (pl.connected ? 'You’re all set.' : 'One step and you’re ready. Everything else is set up automatically.') + '</p>' +
       card(ICON.plug, 'plugin', 'Figma plugin', plBody, '', pl.connected) +
       card(ICON.dropbox, 'dropbox', 'Dropbox', dBody, dRight, dDone) +
@@ -214,14 +234,14 @@
     var running = st.status === 'running';
     var head = t ? '<div class="grid-3">' + tile('Before', mb(t.before), plural(items.length, 'image')) + tile('After', mb(t.after), t.done + ' swapped in Figma') +
       tile('Saved', '<span class="better">' + mb(t.before - t.after) + '</span>', pct(t.after, t.before) + '% smaller') + '</div>' : '';
-    var LBL = { pending: 'To do', working: 'Working…', ready: 'Swapping…', done: 'Swapped', kept: 'Left as is', skipped: 'Skipped', error: 'Problem', removed: 'Removed', reverted: 'Put back' };
+    var LBL = { pending: 'To do', working: 'Working…', ready: 'Swapping…', done: 'Swapped', kept: 'Left as is', skipped: 'Skipped', error: 'Problem', removed: 'Removed', reverted: 'Put back', manual: 'Place by hand' };
     var rows = items.map(function (i) {
       return '<tr class="clickable" data-focus="' + esc(i.nodes[0] && i.nodes[0].nodeId) + '"><td class="num">' + esc(i.slides.join(', ')) + '</td><td class="name" title="' + esc(i.names.join(', ')) + '">' + esc(i.names.join(', ')) +
         '</td><td class="num">' + esc(i.src) + (i.target && i.target !== i.src ? '<span class="arrow">→</span>' + esc(i.target) : '') + '</td><td class="num">' + mb(i.before) +
         (i.after ? '<span class="arrow">→</span><span class="better">' + mb(i.after) + '</span>' : '') + '</td><td>' + statusChip(i.status, LBL[i.status] || i.status) +
         '</td><td class="small muted">' + esc(i.reason || '') + '</td></tr>';
     }).join('');
-    return '<div class="page"><h1>Images</h1><p class="lede">Each image is resized to 1.5× the size it’s shown on the slide (never larger than 2560 px, never upscaled) and saved as JPEG, or WebP when it has transparency. A new version is only used if it’s at least 30% smaller. Crops and fills stay exactly the same.</p>' + head +
+    return '<div class="page"><h1>Images</h1><p class="lede">Each image is resized to twice the size it’s shown on the slide, so it stays sharp even on high-resolution screens (never upscaled). Photos become high-quality JPEG, transparent images WebP, and logos or graphics are kept lossless. Every result is compared with the original: it’s only used if it looks the same and is at least 30% smaller. Crops and fills don’t change.</p>' + head +
       '<div class="card" style="padding:8px 10px"><div class="table-wrap" style="max-height:440px"><table><thead><tr><th class="num">Slide</th><th>Layer</th><th class="num">Pixels</th><th class="num">Size</th><th>Status</th><th></th></tr></thead><tbody>' + rows +
       '</tbody></table></div></div><div class="actions"><span class="muted small">A version is saved in Figma’s history before anything changes.</span><span class="spacer"></span>' +
       (todo ? '<button class="btn large" data-a="images.run"' + (running ? ' disabled' : '') + '>' + (running ? 'Optimising…' : 'Optimise ' + plural(todo, 'image')) + '</button>' : '<button class="btn large" data-next>Continue</button>') + '</div></div>';
@@ -264,14 +284,14 @@
     }).join('');
     var how = '<div class="card flat"><h3 style="margin-bottom:10px">How replacing works</h3><ol class="howto">' +
       '<li><b>Find</b>The original is found in Dropbox by name, then proven to be the exact file by its fingerprint (SHA-1), the same one Figma uses.</li>' +
-      '<li><b>Compress</b>1080p H.264 at CRF 22 with AAC sound, set up to start playing straight away. GIFs become silent looping MP4s.</li>' +
+      '<li><b>Compress</b>Visually lossless H.264 (CRF 18), sized to twice the size it’s shown on the slide, up to 4K. A quality check confirms it looks the same as the original. GIFs become silent looping MP4s.</li>' +
       '<li><b>Replace</b>Figma doesn’t let plugins set videos, so the file is shown in a folder. Drag it onto the canvas, and the plugin puts it exactly where the old one was.</li></ol></div>';
     return '<div class="page"><h1>Videos & GIFs</h1><p class="lede">Videos are usually the heaviest part of a deck. This step finds each original, compresses it, and swaps it in with the same position, size, crop and playback settings.</p>' + how +
       '<div class="card" style="padding:8px 10px"><div class="table-wrap" style="max-height:420px"><table><thead><tr><th class="num">Slide</th><th>Layer</th><th>Type</th><th>Status</th><th class="num">Size</th><th>Details</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
       '<div class="actions"><span class="spacer"></span>' +
       (toPrep ? '<button class="btn large' + (ready ? ' secondary' : '') + '" data-a="videos.prepare"' + (busy ? ' disabled' : '') + '>' + (S.videos.status === 'running' ? 'Preparing…' : 'Find & compress ' + toPrep) + '</button>' : '') +
       (ready ? '<button class="btn large" data-a="videos.place"' + (busy ? ' disabled' : '') + '>Replace ' + plural(ready, 'video') + ' in Figma</button>' : '') +
-      (!toPrep && !ready ? '<button class="btn large" data-next>Continue</button>' : '') + '</div></div>';
+      (!toPrep && !ready ? '<button class="btn large" data-next>Continue</button>' : '') + '</div>' + saveCard() + '</div>';
   };
 
   function gridSvg(g, after) {
@@ -289,10 +309,10 @@
       var gaps = g.gapsX.concat(g.gapsY), lo = Math.min.apply(null, gaps), hi = Math.max.apply(null, gaps);
       return '<div class="card"><div class="card-row"><input type="checkbox" class="check" data-grid="' + esc(g.id) + '"' + (g.selected ? ' checked' : '') + (g.status !== 'pending' ? ' disabled' : '') +
         '><div class="grow"><h3>Slide ' + g.slideIndex + ' · ' + esc(g.parentName) + '</h3><div class="muted small">' + g.cols + ' × ' + g.rows + ' grid of ' + g.count + ' · gaps ' +
-        (lo === hi ? lo : lo + '–' + hi) + ' px → 16 px · outer edges stay put</div>' + (g.status === 'done' ? '<div style="margin-top:6px">' + statusChip('done', 'Applied') + '</div>' : '') +
+        (lo === hi ? lo : lo + '–' + hi) + ' px → ' + S.gap + ' px · outer edges stay put</div>' + (g.status === 'done' ? '<div style="margin-top:6px">' + statusChip('done', 'Applied') + '</div>' : '') +
         '</div>' + gridSvg(g, false) + '<span class="arrow">→</span>' + gridSvg(g, true) + '<a data-focus="' + esc(g.plan[0].id) + '">Show</a></div></div>';
     }).join('');
-    return '<div class="page"><h1>Spacing</h1><p class="lede">Thumbnail grids with uneven gaps are set to 16 px between images, keeping the grid’s outer edges where they are. Collages and overlapping layouts are skipped.</p>' + cards +
+    return '<div class="page"><h1>Spacing</h1><p class="lede">Thumbnail grids with uneven gaps are set to ' + S.gap + ' px between images, keeping the grid’s outer edges where they are. Collages and overlapping layouts are skipped.</p>' + cards +
       '<div class="actions"><span class="spacer"></span>' + (sel ? '<button class="btn large" data-a="spacing.run">Apply to ' + plural(sel, 'grid') + '</button>' : '<button class="btn large" data-next>Continue</button>') + '</div></div>';
   };
 
@@ -333,6 +353,19 @@
       (pend ? '<button class="btn large" data-a="align.run">Align ' + plural(pend, 'layer') + '</button>' : '<button class="btn large" data-next>Continue</button>') + '</div></div>';
   };
 
+  function saveCard(always) {
+    var r = S.report || {};
+    var vids = S.videos.items.filter(function (v) { return v.status === 'ready' || v.status === 'not_found'; }).length;
+    var imgs = S.images.items.filter(function (i) { return i.status === 'manual' || i.status === 'error'; }).length;
+    var n = vids + imgs;
+    if (!n && !always) return '';
+    if (!n) return '';
+    return '<div class="card" style="margin-top:16px"><div class="card-row"><div class="grow"><h3>Files to replace by hand</h3><div class="muted small">' +
+      plural(n, 'item') + ' couldn’t be placed in the deck automatically. Save the ready, already-compressed files to a folder of your choice, named by slide, with a list and simple instructions.' +
+      (r.replacementsTo ? '<div class="mono" style="margin-top:6px">' + esc(r.replacementsLabel || r.replacementsTo) + '</div>' : '') +
+      '</div></div><button class="btn" data-a="export.replacements">Save files to replace…</button></div></div>';
+  }
+
   V.report = function () {
     var r = S.report || {}, u = S.undo || {};
     var b = r.before || 0, a = r.after == null ? b : r.after;
@@ -349,7 +382,8 @@
       (r.exportedTo ? '<div class="mono" style="margin-top:6px">' + esc(r.exportedLabel || r.exportedTo) + '</div>' : '') + '</div></div>' +
       (r.exportedTo ? '<button class="btn secondary" data-a="open" data-p="' + esc(JSON.stringify({ path: r.exportedTo })) + '">Show folder</button>' : '') +
       '<button class="btn" data-a="report.export">Export report</button></div></div>';
-    return '<div class="page"><h1>Report</h1><p class="lede">What changed in <b>' + esc((S.deck || {}).name || 'the deck') + '</b>.</p>' + hero + bars + exp + undo + '</div>';
+    var save = saveCard(true);
+    return '<div class="page"><h1>Report</h1><p class="lede">What changed in <b>' + esc((S.deck || {}).name || 'the deck') + '</b>.</p>' + hero + bars + save + exp + undo + '</div>';
   };
 
   // ---------------------------------------------------------------- render
@@ -406,6 +440,8 @@
   function openSettings(expand) {
     call('settings.get').then(function (s) {
       ['figma_client_id', 'dropbox_app_key', 'local_dropbox_root', 'ffmpeg'].forEach(function (k) { $('s_' + k).value = s[k] || ''; });
+      $('s_thumbnail_gap').value = s.thumbnail_gap;
+      $('s_quality').value = s.quality || 'best';
       $('s_figma_client_secret').value = '';
       var det = s.detected || {};
       $('s_local_dropbox_root').placeholder = det.local_dropbox_root ? 'Found automatically: ' + det.local_dropbox_root : 'Not found — see ⓘ';
@@ -455,7 +491,7 @@
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') $('settings').classList.remove('on'); });
   $('s_save').onclick = function () {
     var p = {};
-    ['figma_client_id', 'dropbox_app_key', 'local_dropbox_root', 'ffmpeg', 'figma_client_secret'].forEach(function (k) { p[k] = $('s_' + k).value; });
+    ['figma_client_id', 'dropbox_app_key', 'local_dropbox_root', 'ffmpeg', 'figma_client_secret', 'thumbnail_gap', 'quality'].forEach(function (k) { p[k] = $('s_' + k).value; });
     if (!p.figma_client_secret) delete p.figma_client_secret;
     act('settings.save', p, 'Settings saved').then(function () { $('settings').classList.remove('on'); });
   };

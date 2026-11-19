@@ -12,6 +12,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -21,6 +22,7 @@ from typing import Any, Callable, Optional
 
 from PIL import Image
 
+from . import figma_desktop
 from . import images as imglib
 from . import report as reportlib
 from . import video as vidlib
@@ -31,7 +33,7 @@ from .oauth import DropboxOAuth, FigmaOAuth, OAuthError
 from .secure_store import SecureStore
 from .sources import (DropboxSource, HashCache, LocalFolderSource, dropbox_desktop_root, find_source)
 
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 SMALL_IMAGE = 100 * 1024   # below this an image is never worth touching
 
 
@@ -46,6 +48,11 @@ def _short(path):
     home = os.path.normpath(os.path.expanduser("~"))
     p = os.path.normpath(path)
     return "~" + p[len(home):] if os.path.normcase(p).startswith(os.path.normcase(home) + os.sep) else p
+
+
+def _display_long(use: dict) -> float:
+    sc = use.get("scale") or {}
+    return max(use.get("w", 0) * (sc.get("x") or 1), use.get("h", 0) * (sc.get("y") or 1))
 
 
 def reveal(path: str) -> None:
@@ -108,15 +115,26 @@ class Engine:
         self._dirty = False
         self._busy: Optional[str] = None
         self.state: dict = {
-            "version": VERSION, "demo": bool(demo), "pairCode": self.pair_code, "pairRequest": False,
+            "version": VERSION, "gap": 12, "demo": bool(demo), "pairCode": self.pair_code, "pairRequest": False,
             "connections": {}, "deck": {}, "activity": {"title": "Ready", "detail": "", "progress": None},
             "scan": {"status": "idle"}, "images": {"status": "idle", "items": []},
             "cleanup": {"status": "idle", "items": []}, "videos": {"status": "idle", "items": []},
             "spacing": {"status": "idle", "grids": []}, "align": {"status": "idle", "items": []}, "report": {}, "undo": {"count": 0, "reversible": 0},
         }
+        self.state["gap"] = self.gap()
         self._refresh_connections()
 
     # ------------------------------------------------------------- plumbing
+    def quality(self) -> str:
+        q = self.cfg.get("quality") or "best"
+        return q if q in imglib.PRESETS else "best"
+
+    def gap(self) -> float:
+        try:
+            return max(0.0, min(200.0, float(self.cfg.get("thumbnail_gap"))))
+        except (TypeError, ValueError):
+            return 12.0
+
     def _new_code(self) -> str:
         code = "".join(secrets.choice("0123456789") for _ in range(6))
         self.store.set("pair_code", code)
@@ -144,6 +162,8 @@ class Engine:
         self._loop_thread = threading_ident()
         self._local_source = None
         root = None if self.demo else (self.cfg.get("local_dropbox_root") or dropbox_desktop_root())
+        if not self.demo:
+            loop.run_in_executor(self.io_pool, self._auto_register_plugin)
         if root and os.path.isdir(root):
             self._local_source = LocalFolderSource(root, self.hash_cache, "Dropbox")
             loop.run_in_executor(self.io_pool, self._local_source.search, "warm-up")  # builds the index under its lock
@@ -169,14 +189,66 @@ class Engine:
                         "localRootShort": _short(local_root)},
             "plugin": self.state.get("connections", {}).get("plugin", {"connected": False}),
             "ffmpeg": {"ok": bool(self.ffmpeg and self.ffprobe), "path": self.ffmpeg},
+            "figmaApp": self._figma_app_status(),
         }
         if self.demo:
             self.state["connections"]["figma"].update({"signedIn": True, "user": {"handle": "Demo user"}, "demo": True})
-            self.state["connections"]["dropbox"].update({"signedIn": False, "demo": True,
+            self.state["connections"]["dropbox"].update({"signedIn": getattr(self, "_demo_dbx", False), "demo": True,
+                                                         "configured": True,
                                                          "account": {"name": "Sample folder", "team": "Demo"},
                                                          "localRoot": self.demo.get("dropbox"),
                                                          "localRootShort": "samples/dropbox (demo)"})
         self.changed()
+
+    def _figma_app_status(self) -> dict:
+        if self.demo:
+            return getattr(self, "_demo_figma", {"installed": True, "registered": False, "running": True})
+        return {"installed": bool(figma_desktop.settings_path()),
+                "registered": figma_desktop.is_registered(self.plugin_manifest()),
+                "running": figma_desktop.is_running()}
+
+    def _auto_register_plugin(self) -> None:
+        """At start-up: add the plugin to Figma desktop if Figma is closed. Zero clicks."""
+        try:
+            if figma_desktop.settings_path() and not figma_desktop.is_running():
+                if figma_desktop.register(self.plugin_manifest()):
+                    self.activity("Plugin added to Figma", "It’s under Plugins › Development the next time you open Figma.")
+        except Exception:
+            pass
+        self.state["connections"]["figmaApp"] = self._figma_app_status()
+        self.changed()
+
+    async def a_plugin_status(self, p):
+        st = await self.loop.run_in_executor(self.io_pool, self._figma_app_status)
+        self.state["connections"]["figmaApp"] = st
+        self.changed()
+        return st
+
+    async def a_plugin_install(self, p):
+        """One click: (restart Figma if it's open) and add the plugin to it."""
+        if self.demo:
+            self._demo_figma = {"installed": True, "registered": True, "running": True}
+            self.state["connections"]["figmaApp"] = self._demo_figma
+            self.activity("Plugin added to Figma", "Figma restarted with the plugin ready.")
+            return True
+        manifest = self.plugin_manifest()
+
+        def work():
+            if not figma_desktop.settings_path():
+                raise RuntimeError("Figma desktop isn’t installed on this computer. Install it from figma.com/downloads, open it once, then try again.")
+            was_running = figma_desktop.is_running()
+            if was_running:
+                self.activity("Restarting Figma", "Closing Figma to add the plugin…", None)
+                if not figma_desktop.quit_figma():
+                    raise RuntimeError("Figma didn’t close. Close it yourself (File › Quit), then click Add to Figma again.")
+            figma_desktop.register(manifest)
+            if was_running:
+                figma_desktop.launch_figma()
+            return was_running
+        restarted = await self.loop.run_in_executor(self.io_pool, work)
+        self.state["connections"]["figmaApp"] = self._figma_app_status()
+        self.activity("Plugin added to Figma", "Figma is reopening." if restarted else "Open Figma and it’s ready under Plugins › Development.")
+        return True
 
     # ------------------------------------------------------------- plugin RPC
     def plugin_connected(self, send, info: Optional[dict]) -> None:
@@ -290,6 +362,8 @@ class Engine:
     async def a_settings_get(self, p):
         keys = ["figma_client_id", "dropbox_app_key", "local_dropbox_root", "ffmpeg"]
         out = {k: self.cfg.get(k) or "" for k in keys}
+        out["thumbnail_gap"] = self.gap()
+        out["quality"] = self.quality()
         out["figma_client_secret_set"] = bool(self.figma_auth.client_secret())
         out["sources"] = {k: self.cfg.source_of(k) for k in keys}
         out["dataDir"] = "the app’s data folder" if self.demo else _short(data_dir())
@@ -299,7 +373,7 @@ class Engine:
                            "ffmpeg": _short(vidlib.find_tool("ffmpeg"))}
         return out
 
-    ALLOWED_URLS = ("https://www.figma.com/developers", "https://www.dropbox.com/developers", "https://www.dropbox.com/install", "https://brew.sh",
+    ALLOWED_URLS = ("https://www.figma.com/developers", "https://www.dropbox.com/developers", "https://www.dropbox.com/install", "https://www.figma.com/downloads", "https://brew.sh",
                     "https://www.gyan.dev/ffmpeg", "https://github.com/")
 
     async def a_open_url(self, p):
@@ -329,6 +403,14 @@ class Engine:
         for k in ("figma_client_id", "dropbox_app_key", "local_dropbox_root", "ffmpeg"):
             if k in p:
                 self.cfg.set(k, (p[k] or "").strip())
+        if p.get("quality") in imglib.PRESETS:
+            self.cfg.set("quality", p["quality"])
+        if p.get("thumbnail_gap") not in (None, ""):
+            try:
+                self.cfg.set("thumbnail_gap", max(0.0, min(200.0, float(p["thumbnail_gap"]))))
+            except ValueError:
+                raise ValueError("The gap must be a number of pixels, like 12.")
+            self.state["gap"] = self.gap()
         if p.get("figma_client_secret"):
             self.store.set("figma_client_secret", p["figma_client_secret"].strip())
         if p.get("ffmpeg") is not None:
@@ -343,6 +425,10 @@ class Engine:
         return {"url": url}
 
     async def a_dropbox_signin(self, p):
+        if self.demo:
+            self._demo_dbx = True
+            self._refresh_connections()
+            return {}
         url = self.dropbox_auth.start()
         webbrowser.open(url)
         self.activity("Waiting for Dropbox", "Finish signing in in your browser.")
@@ -442,7 +528,7 @@ class Engine:
             self.activity("Reading the deck", d.get("label", ""), frac)
         try:
             await self.plugin_call("hello")
-            inv = await self.plugin_call("inventory", {"upload": True}, prog)
+            inv = await self.plugin_call("inventory", {"upload": True, "gap": self.gap()}, prog)
         except Exception as e:
             st.update(status="error", error=str(e))
             self.activity("Couldn't read the deck", str(e))
@@ -536,11 +622,13 @@ class Engine:
             for idx, u in enumerate(v["uses"]):
                 vids.append({"key": f"v:{h}:{u['nodeId']}", "kind": "video", "hash": h, "name": u["name"],
                              "slide": u["slideIndex"], "nodeId": u["nodeId"], "fillIndex": u["fillIndex"],
+                             "display": _display_long(u),
                              "status": "pending", "detail": "Not looked for yet", "before": None, "after": None})
         for h, g in gifs.items():
             for u in g["uses"]:
                 vids.append({"key": f"g:{h}:{u['nodeId']}", "kind": "gif", "hash": h, "name": u["name"],
                              "slide": u["slideIndex"], "nodeId": u["nodeId"], "fillIndex": u["fillIndex"],
+                             "display": _display_long(u),
                              "status": "pending", "detail": "Will become a looping MP4", "before": g.get("bytes"),
                              "after": None})
         vids.sort(key=lambda v: (v["slide"], v["name"]))
@@ -592,8 +680,8 @@ class Engine:
             with open(os.path.join(self.blob_dir, item["hash"]), "rb") as f:
                 data = f.read()
             info = self.inv["images"][item["hash"]]
-            r = imglib.optimise(data, item["ratio"] * info["width"], item["ratio"] * info["height"])
-            if r.keep:
+            r = imglib.optimise(data, item["ratio"] * info["width"], item["ratio"] * info["height"], preset=self.quality())
+            if r.keep or r.manual:
                 name = f"{item['hash']}.{r.ext}"
                 with open(os.path.join(self.out_dir, name), "wb") as f:
                     f.write(r.data)
@@ -606,8 +694,9 @@ class Engine:
             self.changed()
             try:
                 r, name = await self.loop.run_in_executor(self.img_pool, work, item)
-                item.update(after=r.out_bytes if r.keep else None, reason=r.reason, target=r.out_size,
-                            file=name, mime=r.mime, status="ready" if r.keep else "kept")
+                item.update(after=r.out_bytes if (r.keep or r.manual) else None, reason=r.reason, target=r.out_size,
+                            file=name, mime=r.mime, psnr=r.psnr,
+                            status="ready" if r.keep else "manual" if r.manual else "kept")
             except Exception as e:
                 item.update(status="error", reason=f"Couldn't process: {e}")
             done += 1
@@ -717,9 +806,12 @@ class Engine:
         local_root = self.cfg.get("local_dropbox_root") or dropbox_desktop_root()
         if self.demo:
             return [LocalFolderSource(self.demo["dropbox"], self.hash_cache, "Sample Dropbox")]
+        # Online first in the list, but local copies always win: DropboxSource maps each
+        # online hit to the synced file when there is one, and the local index is also
+        # searched so files synced from a personal (non-team) path are found too.
         if self.dropbox_auth.token():
             out.append(DropboxSource(self.dropbox_auth.access_token, self.hash_cache, local_root=local_root))
-        elif local_root and os.path.isdir(local_root):
+        if local_root and os.path.isdir(local_root):
             # No sign-in needed: the Dropbox desktop app's folder. Files that aren't synced
             # ("online-only") are downloaded by Dropbox automatically when they're read.
             if not (self._local_source and self._local_source.root == local_root):
@@ -784,20 +876,30 @@ class Engine:
             stem = re.sub(r'[\\/:*?"<>|]+', "_", os.path.splitext(first["name"])[0])[:60]
             out = os.path.join(self.out_dir, f"Slide{int(first['slide']):02d}_{stem}_{first['hash'][:6]}.mp4")
 
+            preset = self.quality()
+            display = max(v.get("display") or 0 for v in group)
+
             def run():
                 fn = vidlib.gif_to_mp4 if first["kind"] == "gif" else vidlib.compress_video
-                fn(self.ffmpeg, self.ffprobe, src_path, out,
-                   progress=lambda f: set_all(group, progress=f, detail=f"Compressing {round(f * 100)}%"))
+                return fn(self.ffmpeg, self.ffprobe, src_path, out, preset=preset, display_long=display,
+                          progress=lambda f: set_all(group, progress=f, detail=f"Compressing {round(f * 100)}%"))
             try:
-                await self.loop.run_in_executor(self.vid_pool, run)
+                set_all(group, detail="Compressing")
+                info = await self.loop.run_in_executor(self.vid_pool, run)
                 before = os.path.getsize(src_path)
                 after = os.path.getsize(out)
-                if first["kind"] == "video" and after > (1 - vidlib.MIN_SAVING) * before:
+                score = getattr(info, "psnr", None)
+                if score is not None and score < vidlib.PRESETS[preset]["min_psnr"]:
+                    set_all(group, status="kept", detail=f"Would lose visible quality ({score:.0f} dB) — left as it is.",
+                            before=before, after=None, psnr=round(score, 1))
+                    os.remove(out)
+                elif first["kind"] == "video" and after > (1 - vidlib.MIN_SAVING) * before:
                     set_all(group, status="kept", detail="Already efficient — left as it is.", before=before, after=None)
                     os.remove(out)
                 else:
-                    set_all(group, status="ready", detail="Ready to replace", before=before, after=after, out=out,
-                            file=os.path.basename(out))
+                    q = f" · quality check passed ({score:.0f} dB)" if score else ""
+                    set_all(group, status="ready", detail="Ready to replace" + q, before=before, after=after, out=out,
+                            file=os.path.basename(out), psnr=round(score, 1) if score else None)
             except Exception as e:
                 set_all(group, status="error", detail=str(e)[:200])
             finally:
@@ -887,7 +989,7 @@ class Engine:
         self._log_undo(res.get("log", []))
         for g in chosen:
             g["status"] = "done"
-        self.activity("Spacing evened out", f"{len(chosen)} grid{'s' if len(chosen) != 1 else ''} now use{'s' if len(chosen) == 1 else ''} 16 px gaps", 1)
+        self.activity("Spacing evened out", f"{len(chosen)} grid{'s' if len(chosen) != 1 else ''} now use{'s' if len(chosen) == 1 else ''} {self.gap():g} px gaps", 1)
         return {"grids": len(chosen)}
 
     # ------------------------------------------------------------- alignment
@@ -1001,7 +1103,7 @@ class Engine:
     def _replace_rows(self) -> list[dict]:
         rows = []
         for i in self.state["images"]["items"]:
-            if i["status"] == "error" or ("rotation" in (i.get("reason") or "")):
+            if i["status"] in ("error", "manual"):
                 rows.append({"Slide": ", ".join(map(str, i["slides"])), "Layer": ", ".join(i["names"]), "Type": "Image",
                              "Why it needs a person": i.get("reason", ""),
                              "What to do": "Export a smaller copy (about " + (i.get("target") or "1.5× display size") +
@@ -1046,7 +1148,7 @@ class Engine:
                    for c in self.state["cleanup"]["items"]]
         sp_rows = [{"Slide": g["slideIndex"], "Group": g["parentName"], "Grid": f"{g['cols']}×{g['rows']}",
                     "Gaps before": ", ".join(f"{x:g}" for x in (g["gapsX"] + g["gapsY"])),
-                    "Result": "16 px" if g["status"] == "done" else "Unchanged"} for g in self.state["spacing"]["grids"]]
+                    "Result": f"{self.gap():g} px" if g["status"] == "done" else "Unchanged"} for g in self.state["spacing"]["grids"]]
         al_rows = [{"Slide": a["slide"], "Layer": a["name"], "Kind": a["role"].title(), "Why": a["reason"],
                     "Move": f"{a['after']['x'] - a['before']['x']:+g}, {a['after']['y'] - a['before']['y']:+g} px",
                     "Result": "Aligned" if a["status"] == "done" else "Unchanged"} for a in self.state["align"]["items"]]
@@ -1057,7 +1159,7 @@ class Engine:
              "rows": vid_rows, "cols": ["Slide", "Layer", "Type", "Before", "After", "Result"]},
             {"title": "Hidden & covered layers", "summary": f"{rep['removed']} removed", "rows": cl_rows,
              "cols": ["Slide", "Layer", "Reason", "Result"]},
-            {"title": "Spacing", "summary": f"{rep['grids']} grid(s) set to 16 px", "rows": sp_rows,
+            {"title": "Spacing", "summary": f"{rep['grids']} grid(s) set to {self.gap():g} px", "rows": sp_rows,
              "cols": ["Slide", "Group", "Grid", "Gaps before", "Result"]},
             {"title": "Alignment", "summary": f"{rep.get('aligned', 0)} layer(s) aligned to the layout",
              "rows": al_rows, "cols": ["Slide", "Layer", "Kind", "Why", "Move", "Result"]},
@@ -1079,6 +1181,71 @@ class Engine:
         if p.get("open", not self.demo):
             open_path(paths["report"])
         return paths
+
+    def _replacement_files(self) -> list[dict]:
+        """Prepared, already-compressed files that still need placing by hand."""
+        out = []
+        for v in self.state["videos"]["items"]:
+            if v["status"] == "ready" and v.get("out") and os.path.exists(v["out"]):
+                out.append({"src": v["out"], "slide": v["slide"], "layer": v["name"], "type": "GIF" if v["kind"] == "gif" else "Video",
+                            "why": "Not placed yet" + (" (skipped)" if v.get("skipped") else ""), "ext": "mp4"})
+        for i in self.state["images"]["items"]:
+            if i["status"] in ("manual", "error") and i.get("file") and os.path.exists(os.path.join(self.out_dir, i["file"])):
+                out.append({"src": os.path.join(self.out_dir, i["file"]), "slide": (i["slides"] or ["?"])[0],
+                            "layer": ", ".join(i["names"]), "type": "Image", "why": i.get("reason", ""),
+                            "ext": i["file"].rsplit(".", 1)[-1]})
+        return out
+
+    async def a_export_replacements(self, p):
+        """Copy every file that couldn't be placed automatically into a folder the person picks."""
+        files = self._replacement_files()
+        missing = [v for v in self.state["videos"]["items"] if v["status"] == "not_found"]
+        if not files and not missing:
+            raise RuntimeError("Nothing needs replacing by hand — everything was done automatically.")
+        deck = reportlib.safe_name((self.state.get("deck") or {}).get("name") or "Deck")
+        base = None
+        win = getattr(self, "window", None)
+        if win and not self.demo:
+            import webview
+            res = await self.loop.run_in_executor(self.io_pool, lambda: win.create_file_dialog(webview.FOLDER_DIALOG))
+            if not res:
+                return None          # cancelled
+            base = res[0] if isinstance(res, (list, tuple)) else res
+        if not base:
+            base = (os.path.join(work_dir(), "reports") if self.demo
+                    else os.path.join(os.path.expanduser("~"), "Documents", APP_NAME))
+        folder = os.path.join(base, f"{deck} – files to replace")
+        os.makedirs(folder, exist_ok=True)
+
+        def work():
+            rows = []
+            for f in sorted(files, key=lambda f: (int(f["slide"]) if str(f["slide"]).isdigit() else 999, f["layer"])):
+                name = reportlib.safe_name(f"Slide {int(f['slide']):02d} – {f['layer']}" if str(f["slide"]).isdigit()
+                                           else f["layer"])[:90] + "." + f["ext"]
+                shutil.copy2(f["src"], os.path.join(folder, name))
+                rows.append({"Slide": f["slide"], "Layer": f["layer"], "Type": f["type"], "Why it needs a person": f["why"],
+                             "What to do": "Drag this file onto the slide in place of the layer (match its size and position).",
+                             "Prepared file": name})
+            for v in missing:
+                rows.append({"Slide": v["slide"], "Layer": v["name"], "Type": "Video", "Why it needs a person": v.get("detail", ""),
+                             "What to do": "Find the original video and run the app again, or compress it by hand.",
+                             "Prepared file": ""})
+            reportlib.write_replace_list(os.path.join(folder, "Replace list.csv"), rows)
+            with open(os.path.join(folder, "How to replace.txt"), "w", encoding="utf-8") as fh:
+                fh.write("These files are already compressed for the deck, with no visible quality loss.\n\n"
+                         "For each one: open the slide named in the file name, drag the file onto the canvas,\n"
+                         "line it up with the old layer (same size and position), then delete the old layer.\n\n"
+                         "Replace list.csv lists every item, including any the app couldn't find.\n")
+            return len(rows)
+        n = await self.loop.run_in_executor(self.io_pool, work)
+        self.state["report"]["replacementsTo"] = folder
+        self.state["report"]["replacementsLabel"] = _short(folder) if not self.demo else os.path.join("Demo reports", os.path.basename(folder))
+        self.changed()
+        if not self.demo:
+            open_path(folder)
+        self.activity("Files to replace saved", (f"{len(files)} ready file{'s' if len(files) != 1 else ''} and " if files else "")
+                      + f"a list of {n} item{'s' if n != 1 else ''} in “{os.path.basename(folder)}”")
+        return {"folder": folder, "files": len(files), "rows": n}
 
     async def a_open(self, p):
         path = p.get("path")

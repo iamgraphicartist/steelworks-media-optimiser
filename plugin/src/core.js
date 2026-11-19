@@ -4,7 +4,7 @@
 var SMOCore = (function () {
   'use strict';
 
-  var GAP = 16;
+  var GAP = 12; // default gap between thumbnails (the app can override it)
   var GRID = 20; // 20x20 sample points per layer for coverage
 
   // ---------------------------------------------------------------- geometry
